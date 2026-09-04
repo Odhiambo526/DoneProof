@@ -25,6 +25,15 @@ def _json(name: str, default: Any) -> Any:
         raise RuntimeError(f"{name} must contain valid JSON") from exc
 
 
+def _default_db_path() -> str:
+    # Vercel Functions have an ephemeral writable /tmp filesystem. Keep the
+    # normal local/container default everywhere else. A durable pilot should
+    # configure persistent storage rather than rely on this fallback.
+    if os.getenv("VERCEL") == "1":
+        return "/tmp/doneproof.db"
+    return "./doneproof.db"
+
+
 @dataclass(frozen=True)
 class WebhookSource:
     tenant_id: str
@@ -99,7 +108,7 @@ def get_settings() -> Settings:
     cors = tuple(x.strip() for x in os.getenv("DONEPROOF_CORS_ORIGINS", "").split(",") if x.strip())
     return Settings(
         env=os.getenv("DONEPROOF_ENV", "development"),
-        db_path=os.getenv("DONEPROOF_DB", "./doneproof.db"),
+        db_path=os.getenv("DONEPROOF_DB", _default_db_path()),
         api_keys=api_keys,
         cors_origins=cors,
         verification_timeout_seconds=float(os.getenv("DONEPROOF_VERIFICATION_TIMEOUT_SECONDS", "15")),

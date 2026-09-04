@@ -2,6 +2,8 @@
 
 ## 0.9.1
 
+- Fixed Vercel deployment detection with an explicit FastAPI entrypoint and Python 3.12 pin.
+- Added a Vercel-safe `/tmp/doneproof.db` fallback for deployment smoke tests when no database path is configured.
 - Bound every signed receipt to the exact canonical completion contract with `contract_hash`.
 - Made historical receipt integrity independent of the server's current signing key so key rotation does not invalidate old receipts.
 - Made completion-contract IDs immutable within a workspace.

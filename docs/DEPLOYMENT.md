@@ -63,3 +63,11 @@ Before horizontal multi-instance production, replace or externalize:
 - API-key console → SSO/RBAC administration plane
 
 These changes do not alter the completion-contract or receipt model.
+
+## Vercel
+
+DoneProof declares `doneproof.app:app` as its Vercel FastAPI entrypoint and pins Python 3.12. No `vercel.json` rewrite is required for the standalone FastAPI deployment.
+
+Vercel Functions only provide ephemeral writable storage. When `VERCEL=1` and `DONEPROOF_DB` is not set, DoneProof therefore uses `/tmp/doneproof.db` so the function can start. This is suitable for deployment smoke tests and short-lived evaluation, **not** for durable receipt/audit retention. Use the container deployment with persistent storage for a real pilot until DoneProof has a managed durable database backend.
+
+For a production-mode DoneProof instance, continue to configure `DONEPROOF_ENV=production`, workspace API keys, and a stable signing seed. Production mode still fails closed when those controls are absent.
