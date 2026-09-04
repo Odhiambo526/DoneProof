@@ -5,18 +5,22 @@ from dataclasses import dataclass
 from typing import Any
 
 
+@dataclass(frozen=True)
+class ObservationContext:
+    tenant_id: str
+    contract_id: str
+    task_started_at: str
+
+
 @dataclass
 class ProviderObservation:
     state: Any
     source_url: str | None = None
     note: str | None = None
-    # True means the provider returned evidence, but it is not safe to treat
-    # that evidence as a single authoritative state (for example, discovery
-    # matched multiple resources or GitHub returned a privacy-preserving 404).
     indeterminate: bool = False
 
 
 class ProviderAdapter(ABC):
     @abstractmethod
-    async def observe(self, selector: dict[str, Any]) -> ProviderObservation:
+    async def observe(self, selector: dict[str, Any], context: ObservationContext) -> ProviderObservation:
         raise NotImplementedError

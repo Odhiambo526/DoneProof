@@ -1,0 +1,23 @@
+{
+  "contract": {
+    "task": "Complete refund refund-42 in the ERP",
+    "postconditions": [
+      {
+        "id": "p1",
+        "description": "ERP recorded the refund as completed",
+        "provider": "webhook",
+        "selector": {"source": "erp", "event_type": "refund.completed", "object_id": "refund-42"},
+        "predicate": {"op": "eq", "path": "payload.status", "expected": "completed"},
+        "required": true
+      },
+      {
+        "id": "p2",
+        "description": "Refund amount is at least 1200",
+        "provider": "webhook",
+        "selector": {"source": "erp", "event_type": "refund.completed", "object_id": "refund-42"},
+        "predicate": {"op": "gte", "path": "payload.amount", "expected": 1200},
+        "required": true
+      }
+    ]
+  }
+}

@@ -1,152 +1,175 @@
-# DoneProof v0.2
+# DoneProof
 
-**Your agent says “done.” DoneProof proves it.**
+**Outcome assurance infrastructure for AI agents.**
 
-DoneProof turns a human task into a **completion contract**, independently discovers/observes the target system, evaluates deterministic postconditions, and emits a tamper-evident verification receipt.
+DoneProof independently verifies that an AI agent produced the external outcome a user requested, then emits a signed evidence receipt.
 
-## Core invariant
+An executor saying **“done”** is never treated as proof.
 
-> A task cannot become `VERIFIED` unless every required postcondition is independently observed and passes.
+## Why DoneProof
 
-The executor's claim is never treated as evidence.
+Agent systems are increasingly able to send email, update records, create pull requests, submit forms, trigger refunds, and operate internal business software. Tool-call success is not the same as outcome success.
 
-## Architecture
+DoneProof separates execution from assurance:
 
 ```text
 human intent
-   ↓
-Astra contract compiler
-   ↓
-completion contract + task_started_at
-   ↓
-provider observer/discovery (GitHub now; Gmail next)
-   ↓
-deterministic predicates
-   ↓
+    ↓
+completion contract
+    ↓
+agent / automation performs work
+    ↓
+independent provider observation
+    ↓
+deterministic postconditions
+    ↓
 VERIFIED / PARTIAL / FAILED / UNKNOWN
-   ↓
-HMAC-signed evidence receipt
+    ↓
+Ed25519-signed evidence receipt
 ```
 
-The LLM is deliberately **not** the source of truth. GPT-6 Astra translates ambiguous intent into explicit postconditions. Provider adapters query external state; deterministic predicates decide PASS/FAIL whenever possible.
+## Pilot release
 
-## What v0.2 adds
+DoneProof `0.8.0` is designed for controlled industry pilots and integration experiments.
 
-A new GitHub resource can be verified **without trusting the agent to report its issue/PR number**.
+Supported evidence paths:
 
-Given:
+- **GitHub** — issues and pull requests, including time-bounded discovery when the final resource number is not known in advance.
+- **Gmail** — distinguishes `SENT` from `DRAFT`, and verifies recipients, subject, thread and attachment metadata.
+- **Trusted webhooks** — signed evidence events from ERPs, CRMs, payment systems, support platforms, internal APIs, or proprietary workflows.
 
-```json
-{
-  "repo": "acme/api",
-  "kind": "issue",
-  "number": null,
-  "title": "Auth bypass"
-}
-```
+The optional model compiler converts natural-language intent into a completion contract. The verification engine does not depend on a model and can be used immediately with explicit contracts.
 
-DoneProof searches resources created after the contract's `task_started_at` boundary.
+## Core invariant
 
-- zero matches → the requested existence predicate fails
-- one match → DoneProof re-fetches the canonical resource and verifies it
-- multiple matches → `UNKNOWN`; DoneProof refuses to guess
-- pre-existing matching resources → ignored
-- GitHub 404 where absence/private inaccessibility cannot be distinguished → `UNKNOWN`
+> A registered run cannot become `VERIFIED` unless every required postcondition independently passes against evidence observed after DoneProof registered the run.
 
-This closes a key trust gap: an execution agent cannot simply hand the verifier a convenient resource ID and call it proof.
+DoneProof returns `UNKNOWN` when authoritative state cannot be established safely. It does not guess its way to success.
 
-## Run locally
+## Quick start
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e '.[dev]'
 cp .env.example .env
-uvicorn doneproof.app:app --reload
+uvicorn doneproof.app:app --host 0.0.0.0 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/docs`.
+Open:
 
-Run the built-in failure demo:
+- Product surface: `http://localhost:8000/`
+- Assurance console: `http://localhost:8000/console`
+- API reference: `http://localhost:8000/docs`
+- Readiness: `http://localhost:8000/ready`
+
+Or run with Docker:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8000/v1/verify/demo | python -m json.tool
+docker compose up --build
 ```
 
-Expected verdict: `PARTIAL`. The requested title is correct, but the assignee is missing.
+## Recommended high-assurance flow
 
-## Compile a contract with GPT-6 Astra
-
-Set `OPENAI_API_KEY`, then:
+### 1. Register the intended outcome before execution
 
 ```bash
-curl -s http://127.0.0.1:8000/v1/contracts/compile \
-  -H 'content-type: application/json' \
-  -d '{
-    "task":"Create GitHub issue Auth bypass in acme/api and assign alice",
-    "task_started_at":"2026-09-04T03:00:00Z",
-    "context":{"repo":"acme/api","title":"Auth bypass","assignee":"alice"}
-  }'
+curl -X POST http://localhost:8000/v1/runs \
+  -H 'Content-Type: application/json' \
+  -H 'X-DoneProof-Key: dp_live_example' \
+  --data-binary @examples/github_registered_run.json
 ```
 
-The compiler defaults to `gpt-6-astra` and uses Structured Outputs. If the final GitHub number is unknown but safe discovery constraints exist, it emits `number: null` instead of downgrading immediately to `unresolved`.
+DoneProof stamps the trusted `task_started_at` boundary on the server. For mutable existing resources, set `require_change: true` on a postcondition; DoneProof captures a minimal pre-execution baseline and requires an unsatisfied → satisfied transition before crediting the agent.
 
-## Verify real GitHub state
+### 2. Let the agent perform the action
 
-Set `GITHUB_TOKEN` for private repositories and higher rate limits. POST a completion contract to `/v1/verify`.
+DoneProof does not need to be the executor. The action can come from any model, agent framework, browser agent, RPA system, or internal automation.
 
-Known-number example: `examples/github_issue_contract.json`.
-
-Discovery example: `examples/github_discovery_contract.json`.
+### 3. Verify the registered run
 
 ```bash
-curl -s -X POST http://127.0.0.1:8000/v1/verify \
-  -H 'content-type: application/json' \
-  --data-binary @examples/github_discovery_contract.json | python -m json.tool
+curl -X POST http://localhost:8000/v1/runs/cc_xxx/verify \
+  -H 'X-DoneProof-Key: dp_live_example' \
+  -H 'Idempotency-Key: agent-run-1842'
 ```
 
-## Receipt model
+The response is a signed `VerificationReceipt` with condition-level evidence.
 
-Each receipt contains:
+## Verdicts
 
-- original task and contract id
+| Verdict | Meaning |
+|---|---|
+| `VERIFIED` | Every required outcome independently passed. |
+| `PARTIAL` | Required outcomes contain both pass and fail results. |
+| `FAILED` | Required outcomes failed and none passed. |
+| `UNKNOWN` | Required authoritative state could not be established safely. |
+
+Optional postconditions never downgrade a fully satisfied required outcome.
+
+## Signed receipts
+
+Receipts are signed with Ed25519 and include:
+
+- original task and contract ID
+- assurance level (`registered`, `submitted`, or `synthetic`)
 - condition-level PASS / FAIL / UNKNOWN
-- exact selector used, including injected task-time bound
-- observed value and source URL
-- provider notes / ambiguity evidence
-- overall verdict
+- minimal observed evidence
+- provider source reference
+- per-condition latency
+- overall duration
 - SHA-256 receipt hash
-- HMAC-SHA256 signature
+- Ed25519 public key ID and signature
 
-HMAC is a v0.x tamper-evidence mechanism only. Production should use asymmetric signing keys in KMS/HSM so third parties can verify receipts without knowing the signing secret.
+Integrity can be checked with:
 
-## Verdict semantics
+```text
+GET /v1/receipts/{receipt_id}/integrity
+```
 
-- `VERIFIED`: every required postcondition passed.
-- `PARTIAL`: some required outcomes passed and at least one failed, or optional conditions were not fully satisfied.
-- `FAILED`: required postconditions failed and none passed.
-- `UNKNOWN`: required state could not be independently and uniquely established.
+A human-readable certificate is available at:
 
-## Security decisions
+```text
+GET /v1/receipts/{receipt_id}/certificate
+```
 
-- Repository selectors are validated before constructing GitHub API paths.
-- The adapter only calls `api.github.com`; there is no generic URL-fetch verifier/SSRF primitive.
-- Redirects are disabled.
-- Discovery is bounded by `task_started_at`, preventing a pre-existing resource from proving a new action.
-- Duplicate discovery candidates produce `UNKNOWN`; the verifier never picks the most convenient match.
-- GitHub 404 is treated conservatively because GitHub can conceal private resources behind 404.
-- Model-generated selectors are validated; missing identity constraints cannot manufacture a successful lookup.
-- External exceptions and inaccessible state map to `UNKNOWN`, never success.
-- Verification evidence remains independent from the execution agent's claim.
+## Security posture
 
-## Tests
+DoneProof intentionally avoids a generic arbitrary-URL verifier. Provider adapters use constrained endpoints, and webhook ingestion requires HMAC authentication plus a replay window.
+
+Production deployments should configure:
+
+- workspace API keys
+- a persistent Ed25519 signing seed from a secret manager/KMS bootstrap
+- tenant-specific Gmail credentials where Gmail verification is required
+- webhook source secrets isolated from execution agents
+- TLS termination and network policy at the deployment edge
+- durable database backup and retention policy
+
+See [`docs/SECURITY.md`](docs/SECURITY.md).
+
+## Customer integrations
+
+See:
+
+- [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md)
+- [`docs/PILOT_GUIDE.md`](docs/PILOT_GUIDE.md)
+- [`docs/RECEIPTS.md`](docs/RECEIPTS.md)
+
+Example contracts are under [`examples/`](examples/).
+
+## Test
 
 ```bash
 pytest -q
+python -m compileall doneproof
+python benchmarks/benchmark_core.py
 ```
 
-The suite covers deterministic verdicts, compiler schema safety, unique discovery, wrong-resource creation, duplicate-title ambiguity, task-time boundaries and privacy-preserving GitHub 404 behavior.
+The test suite covers success, partial completion, uncertainty, tenant isolation, signature tampering, idempotency, transient provider failures, GitHub resource ambiguity, Gmail draft-vs-sent behavior, webhook authentication/replay protection, temporal-boundary enforcement and upgrade-safe persistence.
 
-## Next
+## What DoneProof proves
 
-Day 3 is the Gmail verifier: independently distinguish **Sent** from **Draft**, then verify recipients, subject, thread and attachment metadata. See `ROADMAP.md`.
+DoneProof proves that configured postconditions match independently observed evidence under the configured trust model. It does **not** prove that an ambiguous human instruction was interpreted correctly, that an external provider is truthful, or that an authorized operator intended the action. Those belong to intent governance, authorization and provider trust respectively.
+
+That boundary is deliberate: DoneProof is the **outcome assurance** layer between agent execution and business acceptance.

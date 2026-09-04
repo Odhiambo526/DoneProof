@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from .base import ProviderAdapter, ProviderObservation
+from .base import ObservationContext, ProviderAdapter, ProviderObservation
 
 
 class MockAdapter(ProviderAdapter):
-    """Deterministic adapter used for tests, demos, and SDK integration work."""
+    """Synthetic adapter available only for tests and explicitly enabled demos."""
 
-    async def observe(self, selector: dict):
+    async def observe(self, selector: dict, context: ObservationContext):
         if "state" not in selector:
             raise ValueError("mock selector requires a 'state' object")
         return ProviderObservation(
             state=selector["state"],
             source_url="mock://local-state",
-            note="Synthetic state supplied by the caller; not independent external evidence.",
+            note="Synthetic evidence; not suitable for production assurance.",
         )

@@ -7,7 +7,8 @@ from typing import Any
 
 import httpx
 
-from .base import ProviderAdapter, ProviderObservation
+from ..http import resilient_get
+from .base import ObservationContext, ProviderAdapter, ProviderObservation
 
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _MAX_DISCOVERY_PAGES = 5
@@ -41,7 +42,7 @@ class GitHubAdapter(ProviderAdapter):
         h = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "doneproof/0.2",
+            "User-Agent": "doneproof/0.8",
         }
         if self.token:
             h["Authorization"] = f"Bearer {self.token}"
@@ -55,7 +56,7 @@ class GitHubAdapter(ProviderAdapter):
             headers=self._headers(),
         )
 
-    async def observe(self, selector: dict[str, Any]) -> ProviderObservation:
+    async def observe(self, selector: dict[str, Any], context: ObservationContext) -> ProviderObservation:
         repo = str(selector.get("repo", ""))
         kind = selector.get("kind")
         number = selector.get("number")
@@ -75,7 +76,7 @@ class GitHubAdapter(ProviderAdapter):
         path = "issues" if kind == "issue" else "pulls"
         url = f"{self.API}/repos/{repo}/{path}/{number}"
         async with self._client() as client:
-            r = await client.get(url)
+            r = await resilient_get(client, url)
         if r.status_code == 404:
             return ProviderObservation(
                 state=None,
@@ -114,12 +115,10 @@ class GitHubAdapter(ProviderAdapter):
                     "per_page": 100,
                     "page": page,
                 }
-                # Issues support a server-side `since` bound. Pull requests do
-                # not, so both paths are still bounded again client-side.
                 if kind == "issue":
                     params["since"] = created_after.isoformat().replace("+00:00", "Z")
 
-                r = await client.get(url, params=params)
+                r = await resilient_get(client, url, params=params)
                 if r.status_code == 404:
                     return ProviderObservation(
                         state=None,
@@ -134,11 +133,12 @@ class GitHubAdapter(ProviderAdapter):
 
                 reached_time_bound = False
                 for item in items:
-                    # GitHub's issues endpoint includes pull requests.
                     if kind == "issue" and item.get("pull_request") is not None:
                         continue
                     created_at = _parse_time(item.get("created_at"))
-                    if created_at and created_at < created_after:
+                    if created_at is None:
+                        continue
+                    if created_at < created_after:
                         reached_time_bound = True
                         continue
                     if title is not None and item.get("title") != title:

@@ -1,0 +1,23 @@
+{
+  "contract": {
+    "task": "Send September invoice to finance@example.com with invoice.pdf attached",
+    "postconditions": [
+      {
+        "id": "p1",
+        "description": "The message is in Sent rather than Drafts",
+        "provider": "gmail",
+        "selector": {"message_id": null, "subject": "September invoice", "to": "finance@example.com"},
+        "predicate": {"op": "eq", "path": "location", "expected": "sent"},
+        "required": true
+      },
+      {
+        "id": "p2",
+        "description": "The invoice is attached",
+        "provider": "gmail",
+        "selector": {"message_id": null, "subject": "September invoice", "to": "finance@example.com"},
+        "predicate": {"op": "contains", "path": "attachment_names", "expected": "invoice.pdf"},
+        "required": true
+      }
+    ]
+  }
+}

@@ -1,11 +1,10 @@
 {
   "contract": {
     "task": "Create GitHub issue 'Auth bypass' in acme/api and assign alice",
-    "task_started_at": "2026-09-04T03:00:00Z",
     "postconditions": [
       {
         "id": "p1",
-        "description": "A new issue with the requested title exists",
+        "description": "Issue exists with the requested title",
         "provider": "github",
         "selector": {
           "repo": "acme/api",
@@ -18,7 +17,7 @@
       },
       {
         "id": "p2",
-        "description": "Alice is assigned to the newly created issue",
+        "description": "Alice is assigned",
         "provider": "github",
         "selector": {
           "repo": "acme/api",

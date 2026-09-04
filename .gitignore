@@ -1,7 +1,12 @@
 .venv/
 __pycache__/
+*.py[cod]
 .pytest_cache/
-*.pyc
-*.db
+.ruff_cache/
 .env
+*.db
+*.db-shm
+*.db-wal
+/data/
+*.zip
 .DS_Store
