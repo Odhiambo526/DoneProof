@@ -1,0 +1,61 @@
+{
+  "receipt_id": "vr_7c47d01b2572448db052",
+  "contract_id": "cc_2a34ca49baf84c94",
+  "task": "Create GitHub issue 'Auth bypass' and assign alice",
+  "verdict": "PARTIAL",
+  "results": [
+    {
+      "id": "p1",
+      "description": "Issue exists with requested title",
+      "required": true,
+      "status": "PASS",
+      "predicate": {
+        "op": "eq",
+        "path": "title",
+        "expected": "Auth bypass"
+      },
+      "evidence": {
+        "provider": "mock",
+        "selector": {
+          "state": {
+            "title": "Auth bypass",
+            "assignees": []
+          }
+        },
+        "observed": "Auth bypass",
+        "source_url": "mock://local-state",
+        "fetched_at": "2026-09-04T04:00:52.623070Z",
+        "note": "Synthetic state supplied by the caller; not independent external evidence."
+      },
+      "reason": "observed='Auth bypass'; expected eq 'Auth bypass'"
+    },
+    {
+      "id": "p2",
+      "description": "Alice is assigned",
+      "required": true,
+      "status": "FAIL",
+      "predicate": {
+        "op": "contains",
+        "path": "assignees",
+        "expected": "alice"
+      },
+      "evidence": {
+        "provider": "mock",
+        "selector": {
+          "state": {
+            "title": "Auth bypass",
+            "assignees": []
+          }
+        },
+        "observed": [],
+        "source_url": "mock://local-state",
+        "fetched_at": "2026-09-04T04:00:52.623100Z",
+        "note": "Synthetic state supplied by the caller; not independent external evidence."
+      },
+      "reason": "observed=[]; expected contains 'alice'"
+    }
+  ],
+  "verified_at": "2026-09-04T04:00:52.623134Z",
+  "receipt_hash": "9af9000cb8d27b60ec54648d5906c211f658d93d01818ccac7e0c0b1b9115f57",
+  "signature": "f58b078a08cf11046134b7db2814ffc269486d2c367972529ccf08d4644a4b2c"
+}

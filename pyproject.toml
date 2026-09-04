@@ -1,0 +1,18 @@
+[project]
+name = "doneproof"
+version = "0.2.0"
+description = "Outcome verification infrastructure for AI agents"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "jsonschema>=4.23"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
