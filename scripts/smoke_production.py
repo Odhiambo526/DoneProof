@@ -2,17 +2,21 @@ from __future__ import annotations
 
 import base64
 import json
+import pathlib
 import sys
+import tomllib
 import urllib.error
 import urllib.request
 from urllib.parse import urljoin
 
-from doneproof import __version__
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+with (ROOT / "pyproject.toml").open("rb") as release_file:
+    RELEASE_VERSION = tomllib.load(release_file)["project"]["version"]
 
 
 def fetch(base: str, path: str) -> tuple[int, bytes, dict[str, str]]:
     url = urljoin(base.rstrip("/") + "/", path.lstrip("/"))
-    request = urllib.request.Request(url, headers={"User-Agent": f"doneproof-smoke/{__version__}"})
+    request = urllib.request.Request(url, headers={"User-Agent": f"doneproof-smoke/{RELEASE_VERSION}"})
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
             return response.status, response.read(), dict(response.headers.items())
@@ -49,7 +53,9 @@ def main() -> int:
     status, health = fetch_json(base, "/health")
     assert status == 200 and health.get("ok") is True, f"unexpected /health: {status} {health}"
     assert health.get("service") == "doneproof"
-    assert health.get("version") == __version__, f"production version {health.get('version')} != release {__version__}"
+    assert health.get("version") == RELEASE_VERSION, (
+        f"production version {health.get('version')} != release {RELEASE_VERSION}"
+    )
 
     status, signing = fetch_json(base, "/v1/signing-key")
     assert status == 200 and signing.get("algorithm") == "Ed25519", (
@@ -70,7 +76,7 @@ def main() -> int:
         json.dumps(
             {
                 "ok": True,
-                "version": __version__,
+                "version": RELEASE_VERSION,
                 "storage_backend": ready["storage_backend"],
                 "durable_storage": ready["durable_storage"],
                 "environment": ready["environment"],
