@@ -26,6 +26,15 @@ def _json(name: str, default: Any) -> Any:
         raise RuntimeError(f"{name} must contain valid JSON") from exc
 
 
+def _base64_secret(name: str) -> str | None:
+    """Normalize transport whitespace while preserving strict Base64 semantics."""
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    value = "".join(raw.split())
+    return value or None
+
+
 def _default_db_path() -> str:
     # Vercel Functions have an ephemeral writable /tmp filesystem. Keep the
     # normal local/container default everywhere else. A durable pilot should
@@ -132,7 +141,7 @@ def get_settings() -> Settings:
         gmail_access_token=os.getenv("GMAIL_ACCESS_TOKEN"),
         webhook_sources=webhook_sources,
         webhook_max_skew_seconds=int(os.getenv("DONEPROOF_WEBHOOK_MAX_SKEW_SECONDS", "600")),
-        signing_seed_b64=os.getenv("DONEPROOF_SIGNING_SEED_B64"),
+        signing_seed_b64=_base64_secret("DONEPROOF_SIGNING_SEED_B64"),
         legacy_receipt_key=os.getenv("DONEPROOF_RECEIPT_KEY"),
         max_body_bytes=int(os.getenv("DONEPROOF_MAX_BODY_BYTES", "1048576")),
         requests_per_minute=int(os.getenv("DONEPROOF_REQUESTS_PER_MINUTE", "120")),
