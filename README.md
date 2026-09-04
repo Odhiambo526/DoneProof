@@ -119,6 +119,7 @@ docker compose up --build
 ## Documentation
 
 - [Product overview](docs/PRODUCT_OVERVIEW.md)
+- [Design partner pilot](docs/DESIGN_PARTNER_PILOT.md)
 - [Architecture and trust model](docs/ARCHITECTURE.md)
 - [Integration guide](docs/INTEGRATION_GUIDE.md)
 - [Industry pilot guide](docs/PILOT_GUIDE.md)
