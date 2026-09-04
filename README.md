@@ -8,6 +8,16 @@ It works independently of the executor: OpenAI, Anthropic, Google, browser agent
 
 > **Execution tells you what the agent attempted. DoneProof tells you what became true.**
 
+## Hosted pilot
+
+The current production pilot is available at **https://www.getdoneproof.com**.
+
+- Assurance console: https://www.getdoneproof.com/console
+- API reference: https://www.getdoneproof.com/docs
+- Readiness: https://www.getdoneproof.com/ready
+
+Production runs on Vercel with durable PostgreSQL persistence on Neon. Workspace API routes require a DoneProof API key.
+
 ## The problem
 
 An agent can report success when an email is still a draft, a GitHub issue has the wrong assignee, a refund was requested but never completed, or a CRM update landed on the wrong record.
