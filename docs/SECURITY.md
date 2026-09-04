@@ -90,7 +90,7 @@ Recommended controls outside the application process:
 
 ## Current pilot limitations
 
-- SQLite is appropriate for a controlled single-instance pilot, not horizontally scaled enterprise deployment.
+- SQLite is a local-development fallback only. Production mode requires durable PostgreSQL via `DATABASE_URL`.
 - Gmail uses deployment-supplied access tokens; managed multi-tenant OAuth is not included.
 - Signing is process-local Ed25519 from a configured seed; KMS/HSM integration is not included.
 - The console is an operational pilot surface rather than a full administration plane.

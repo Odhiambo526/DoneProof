@@ -59,6 +59,15 @@ class Settings:
     max_body_bytes: int
     requests_per_minute: int
     max_batch_size: int
+    database_url: str | None = None
+
+    @property
+    def storage_dsn(self) -> str:
+        return self.database_url or self.db_path
+
+    @property
+    def durable_storage(self) -> bool:
+        return bool(self.database_url and (self.database_url.startswith("postgresql://") or self.database_url.startswith("postgres://")))
 
     @property
     def auth_enabled(self) -> bool:
@@ -124,4 +133,5 @@ def get_settings() -> Settings:
         max_body_bytes=int(os.getenv("DONEPROOF_MAX_BODY_BYTES", "1048576")),
         requests_per_minute=int(os.getenv("DONEPROOF_REQUESTS_PER_MINUTE", "120")),
         max_batch_size=int(os.getenv("DONEPROOF_MAX_BATCH_SIZE", "25")),
+        database_url=os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL"),
     )

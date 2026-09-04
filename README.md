@@ -140,7 +140,7 @@ That boundary is deliberate. DoneProof is the **outcome assurance layer** betwee
 
 ## Release status
 
-`0.9.1` is intended for controlled design-partner and paid-pilot evaluation. The verification model, signed receipts, tenant isolation and core provider paths are implemented. The remaining work toward managed enterprise GA is primarily deployment infrastructure: managed OAuth, PostgreSQL/HA, KMS/HSM signing, SSO/RBAC, billing and additional native connectors.
+`0.9.2` is intended for controlled design-partner and paid-pilot evaluation. The verification model, signed receipts, tenant isolation, durable PostgreSQL persistence and core provider paths are implemented. The remaining work toward managed enterprise GA is primarily managed OAuth, HA/operational scaling, KMS/HSM signing, SSO/RBAC, billing and additional native connectors.
 
 ## Validate locally
 

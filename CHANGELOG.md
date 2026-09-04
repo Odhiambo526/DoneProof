@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.2
+
+- Added first-class PostgreSQL persistence selected through `DATABASE_URL` / `POSTGRES_URL`.
+- Added idempotent PostgreSQL schema bootstrap guarded by an advisory transaction lock for concurrent serverless cold starts.
+- Made production fail closed unless durable PostgreSQL storage is configured.
+- Added real PostgreSQL integration coverage to GitHub CI.
+- Exposed storage backend and durability in `/ready`.
+- Kept SQLite only as a zero-setup local-development and Vercel smoke-test fallback.
+- Preserved the explicit Vercel FastAPI entrypoint and Python 3.12 deployment runtime.
+
 ## 0.9.1
 
 - Fixed Vercel deployment detection with an explicit FastAPI entrypoint and Python 3.12 pin.

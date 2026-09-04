@@ -37,7 +37,7 @@ from .signing import ReceiptSigner
 from .store import Store
 from .web import CONSOLE_HTML, LANDING_HTML, certificate_html
 
-VERSION = "0.9.1"
+VERSION = "0.9.2"
 
 
 def create_app(settings: Settings | None = None, adapter_overrides: dict[str, ProviderAdapter] | None = None) -> FastAPI:
@@ -52,6 +52,8 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         raise RuntimeError("Production mode requires DONEPROOF_API_KEYS_JSON")
     if settings.is_production and not settings.has_stable_signing_key:
         raise RuntimeError("Production mode requires a stable DoneProof signing key")
+    if settings.is_production and not settings.durable_storage:
+        raise RuntimeError("Production mode requires durable PostgreSQL storage via DATABASE_URL")
     app = FastAPI(
         title="DoneProof API",
         version=VERSION,
@@ -59,7 +61,7 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         contact={"name": "DoneProof"},
     )
     app.state.settings = settings
-    app.state.store = Store(settings.db_path)
+    app.state.store = Store(settings.storage_dsn)
     app.state.signer = ReceiptSigner(settings)
     app.state.compiler = AstraCompiler(settings)
     app.state.limiter = SlidingWindowLimiter(settings.requests_per_minute)
@@ -145,6 +147,8 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         body = {
             "ready": db_ok,
             "database": "ready" if db_ok else "unavailable",
+            "storage_backend": request.app.state.store.backend,
+            "durable_storage": settings.durable_storage,
             "environment": settings.env,
             "warnings": [],
         }

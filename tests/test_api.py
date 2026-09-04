@@ -66,12 +66,11 @@ def test_production_fails_closed_without_required_controls(settings):
         create_app(prod)
 
 
-def test_production_with_required_controls_starts_ready(settings):
+def test_production_requires_durable_database_after_auth_and_signing(settings):
+    import pytest
     prod=replace(settings,env='production',api_keys={'prod-key':'acme'})
-    client=TestClient(create_app(prod, adapter_overrides={'unresolved': MockAdapter()}))
-    assert client.get('/ready').json()['ready'] is True
-    response=client.get('/health')
-    assert 'Strict-Transport-Security' in response.headers
+    with pytest.raises(RuntimeError, match='durable PostgreSQL'):
+        create_app(prod, adapter_overrides={'unresolved': MockAdapter()})
 
 
 def test_demo_endpoint_is_not_part_of_product_runtime(settings):
