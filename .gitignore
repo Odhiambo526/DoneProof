@@ -10,3 +10,5 @@ __pycache__/
 /data/
 *.zip
 .DS_Store
+
+*.egg-info/

@@ -1,5 +1,5 @@
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 from doneproof.config import get_settings
 
@@ -32,6 +32,7 @@ def test_explicit_database_path_still_wins_on_vercel(monkeypatch, tmp_path):
 
 def test_database_url_takes_precedence_over_vercel_tmp(monkeypatch):
     from doneproof.config import get_settings
+
     get_settings.cache_clear()
     monkeypatch.setenv("VERCEL", "1")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@db.example/doneproof")
@@ -44,6 +45,7 @@ def test_database_url_takes_precedence_over_vercel_tmp(monkeypatch):
 
 def test_serverless_runtime_reports_missing_production_auth_as_503(monkeypatch):
     from fastapi.testclient import TestClient
+
     from doneproof.app import create_runtime_app
 
     monkeypatch.setenv("DONEPROOF_ENV", "production")
@@ -65,7 +67,9 @@ def test_serverless_runtime_reports_missing_production_auth_as_503(monkeypatch):
 
 def test_serverless_runtime_reports_missing_database_without_crashing(monkeypatch):
     import base64
+
     from fastapi.testclient import TestClient
+
     from doneproof.app import create_runtime_app
 
     monkeypatch.setenv("DONEPROOF_ENV", "production")
@@ -80,3 +84,9 @@ def test_serverless_runtime_reports_missing_database_without_crashing(monkeypatc
         assert ready.json()["warnings"] == ["configuration.database_url"]
     finally:
         get_settings.cache_clear()
+
+
+def test_malformed_signing_seed_is_not_considered_stable(settings):
+    from dataclasses import replace
+
+    assert replace(settings, signing_seed_b64="!!!!").has_stable_signing_key is False

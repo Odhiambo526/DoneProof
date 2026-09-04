@@ -18,7 +18,7 @@ Internal test/demo assurance modes are not part of the customer API contract.
 - `public_key` — Base64 raw Ed25519 public key used for this receipt.
 - `signature` — Base64 Ed25519 signature.
 
-A receipt is self-verifying. Historical receipts remain cryptographically verifiable after DoneProof rotates to a new signing key.
+A receipt is self-contained for **integrity checking**: its embedded key can prove that the receipt has not changed since it was signed. The embedded key alone does **not** authenticate the issuer, because any party can generate its own Ed25519 key pair. For issuer authenticity, verify the receipt against a DoneProof public key that your organization pinned through an independent channel.
 
 The deployment's **current** public signing key is available at:
 
@@ -26,7 +26,21 @@ The deployment's **current** public signing key is available at:
 GET /v1/signing-key
 ```
 
-For a specific receipt, use the key embedded in that receipt or its evidence bundle.
+For a specific receipt, the embedded key or evidence bundle is sufficient for integrity checks. For audit, authorization or compliance decisions, compare that key with a separately pinned trusted DoneProof key.
+
+
+## Trusted offline verification
+
+Pin the deployment key once through a trusted onboarding channel, then verify receipts against that exact key:
+
+```python
+from doneproof.client import DoneProofClient
+
+trusted_key = "<base64 Ed25519 public key pinned during onboarding>"
+valid = DoneProofClient.verify_receipt(receipt, trusted_key)
+```
+
+`ReceiptSigner.verify(receipt)` checks integrity against the key carried by the receipt. `ReceiptSigner.verify_trusted(receipt, trusted_key)` additionally requires that signer to match the independently trusted key.
 
 ## Evidence bundle
 
@@ -40,7 +54,7 @@ returns:
 - an integrity result
 - the public key that signed that receipt
 
-This is the preferred portable export for pilot archives and audit review.
+This is the preferred portable export for pilot archives and audit review. Treat the bundle as evidence plus signature material, not as its own trust anchor.
 
 ## Data minimization
 

@@ -66,7 +66,8 @@ DoneProof should remain independent from the repair agent.
 3. Use deterministic required postconditions.
 4. Use `require_change=true` for important updates to pre-existing resources.
 5. Export signed evidence bundles for incident review.
-6. Define operational handling for `PARTIAL`, `FAILED` and `UNKNOWN` before gating production actions.
+6. Pin the DoneProof signing public key through a channel independent of the receipt being verified.
+7. Define operational handling for `PARTIAL`, `FAILED` and `UNKNOWN` before gating production actions.
 
 ## Pilot exit decision
 

@@ -41,8 +41,9 @@ For a real customer pilot:
 4. use a managed PostgreSQL database with TLS enabled
 5. enable provider backups / point-in-time recovery according to pilot retention requirements
 6. store API keys, provider tokens and signing seed outside the repository
-7. monitor `/health` and `/ready`
-8. export evidence bundles for materially important outcomes
+7. pin the deployment Ed25519 public key through an independent onboarding channel
+8. monitor `/health` and `/ready`
+9. export evidence bundles for materially important outcomes
 
 ## Readiness endpoint
 
@@ -50,7 +51,7 @@ For a real customer pilot:
 GET /ready
 ```
 
-Production mode fails fast at startup if workspace authentication, a stable signing key, or durable PostgreSQL storage is missing. `/ready` reports the active storage backend and whether it is durable.
+Production configuration remains fail-closed: customer APIs are unavailable if workspace authentication, a stable signing key, or durable PostgreSQL storage is missing. On serverless platforms, the module entrypoint returns a sanitized `503` diagnostic app instead of crashing import, so `/ready` identifies the configuration class without exposing secret values.
 
 ## Scaling beyond the pilot
 
@@ -81,3 +82,21 @@ DONEPROOF_SIGNING_SEED_B64=...
 If Vercel is running without `DATABASE_URL`, DoneProof retains `/tmp/doneproof.db` only as a development/deployment-smoke fallback. **Production mode refuses to start on that ephemeral store.**
 
 The PostgreSQL schema is created idempotently at startup under a PostgreSQL advisory lock so concurrent serverless cold starts cannot race the initial schema bootstrap.
+
+
+## Production acceptance check
+
+A deployment should not be presented to a pilot customer until `GET /ready` returns all of the following:
+
+```json
+{
+  "ready": true,
+  "database": "ready",
+  "storage_backend": "postgresql",
+  "durable_storage": true,
+  "environment": "production",
+  "warnings": []
+}
+```
+
+Also archive the value returned by `GET /v1/signing-key` in a separate trusted system before accepting production receipts.

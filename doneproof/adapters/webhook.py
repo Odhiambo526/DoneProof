@@ -44,5 +44,9 @@ class WebhookEvidenceAdapter(ProviderAdapter):
                 "payload_hash": newest["payload_hash"],
             },
             source_url=f"doneproof://webhooks/{source}/{newest['event_id']}",
-            note=("Matched trusted webhook evidence." if len(events) == 1 else f"Matched {len(events)} events; using the most recent authoritative event."),
+            note=(
+                "Matched trusted webhook evidence."
+                if len(events) == 1
+                else f"Matched {len(events)} events; using the most recent authoritative event."
+            ),
         )

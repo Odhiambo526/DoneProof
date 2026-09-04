@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from .. import __version__
 from ..config import Settings
 from ..http import resilient_get
 from .base import ObservationContext, ProviderAdapter, ProviderObservation
@@ -24,7 +25,11 @@ class GmailAdapter(ProviderAdapter):
             timeout=15.0,
             follow_redirects=False,
             transport=self.transport,
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "doneproof/0.9.1"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+                "User-Agent": f"doneproof/{__version__}",
+            },
         )
 
     async def observe(self, selector: dict[str, Any], context: ObservationContext) -> ProviderObservation:
@@ -49,7 +54,9 @@ class GmailAdapter(ProviderAdapter):
         if r.status_code == 404:
             return ProviderObservation(state=None, source_url=url, note="Gmail message was not found.")
         if r.status_code in {401, 403}:
-            return ProviderObservation(state=None, source_url=url, note="Gmail connection could not access the mailbox.", indeterminate=True)
+            return ProviderObservation(
+                state=None, source_url=url, note="Gmail connection could not access the mailbox.", indeterminate=True
+            )
         r.raise_for_status()
         return ProviderObservation(state=self._normalize(r.json()), source_url=url)
 
@@ -66,7 +73,7 @@ class GmailAdapter(ProviderAdapter):
 
         q = [f"after:{int(created_after.timestamp())}"]
         if subject:
-            escaped = str(subject).replace('"', '')
+            escaped = str(subject).replace('"', "")
             q.append(f'subject:"{escaped}"')
         if to:
             q.append(f"to:{to}")
@@ -74,7 +81,12 @@ class GmailAdapter(ProviderAdapter):
         async with self._client(token) as client:
             r = await resilient_get(client, url, params={"q": " ".join(q), "maxResults": 100})
             if r.status_code in {401, 403}:
-                return ProviderObservation(state=None, source_url=url, note="Gmail connection could not search the mailbox.", indeterminate=True)
+                return ProviderObservation(
+                    state=None,
+                    source_url=url,
+                    note="Gmail connection could not search the mailbox.",
+                    indeterminate=True,
+                )
             r.raise_for_status()
             refs = r.json().get("messages", []) or []
             candidates: list[dict[str, Any]] = []
@@ -99,7 +111,9 @@ class GmailAdapter(ProviderAdapter):
                 candidates.append(normalized)
 
         if not candidates:
-            return ProviderObservation(state=None, source_url=url, note="No Gmail message matched the completion constraints after task start.")
+            return ProviderObservation(
+                state=None, source_url=url, note="No Gmail message matched the completion constraints after task start."
+            )
         if len(candidates) > 1:
             return ProviderObservation(
                 state={"candidate_count": len(candidates), "candidates": [self._summary(x) for x in candidates[:20]]},
@@ -136,7 +150,10 @@ class GmailAdapter(ProviderAdapter):
 
     @classmethod
     def _normalize(cls, data: dict[str, Any]) -> dict[str, Any]:
-        headers = {str(x.get("name", "")).lower(): str(x.get("value", "")) for x in (data.get("payload") or {}).get("headers", [])}
+        headers = {
+            str(x.get("name", "")).lower(): str(x.get("value", ""))
+            for x in (data.get("payload") or {}).get("headers", [])
+        }
         label_ids = set(data.get("labelIds") or [])
         location = "sent" if "SENT" in label_ids else "draft" if "DRAFT" in label_ids else "other"
         internal_ms = int(data.get("internalDate") or 0)

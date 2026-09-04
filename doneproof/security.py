@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from .config import Settings, get_settings
 
-
 _SENSITIVE_KEY = re.compile(r"(token|secret|password|authorization|cookie|api[_-]?key|credential)", re.I)
 
 

@@ -127,7 +127,7 @@ docker compose up --build
 - Provider adapters are constrained; there is no generic arbitrary-URL verifier.
 - Customer evidence is minimized before being written into receipts.
 - Receipts are hashed and signed with Ed25519.
-- Each receipt carries the public key needed to verify it even after signing-key rotation.
+- Each receipt carries its signing key for integrity checks; issuer authenticity requires customers to pin the expected DoneProof public key out-of-band.
 - Workspace records are tenant-scoped and contract IDs are immutable.
 
 See [docs/SECURITY.md](docs/SECURITY.md) for the complete trust model and known pilot limitations.
@@ -140,7 +140,7 @@ That boundary is deliberate. DoneProof is the **outcome assurance layer** betwee
 
 ## Release status
 
-`0.9.2` is intended for controlled design-partner and paid-pilot evaluation. The verification model, signed receipts, tenant isolation, durable PostgreSQL persistence and core provider paths are implemented. The remaining work toward managed enterprise GA is primarily managed OAuth, HA/operational scaling, KMS/HSM signing, SSO/RBAC, billing and additional native connectors.
+`0.9.4` is intended for controlled design-partner and paid-pilot evaluation. The verification model, signed receipts, tenant isolation, durable PostgreSQL persistence, serverless readiness diagnostics and core provider paths are implemented. The remaining work toward managed enterprise GA is primarily managed OAuth, HA/operational scaling, KMS/HSM signing, SSO/RBAC, billing and additional native connectors.
 
 ## Validate locally
 

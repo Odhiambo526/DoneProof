@@ -1,13 +1,15 @@
 import asyncio
 
-from tests.fakes import MockAdapter
 from doneproof.domain import CompletionContract, Verdict
 from doneproof.engine import VerificationEngine
 from doneproof.signing import ReceiptSigner
+from tests.fakes import MockAdapter
 
 
 def run(contract, settings):
-    return asyncio.run(VerificationEngine({"unresolved": MockAdapter()}, ReceiptSigner(settings), timeout_seconds=1).verify(contract))
+    return asyncio.run(
+        VerificationEngine({"unresolved": MockAdapter()}, ReceiptSigner(settings), timeout_seconds=1).verify(contract)
+    )
 
 
 def contract(conditions):
@@ -15,7 +17,18 @@ def contract(conditions):
 
 
 def test_verified_when_all_required_pass(settings):
-    c = contract([{"id":"p1","description":"state changed","provider":"unresolved","selector":{"state":{"sent":True}},"predicate":{"op":"eq","path":"sent","expected":True},"required":True}])
+    c = contract(
+        [
+            {
+                "id": "p1",
+                "description": "state changed",
+                "provider": "unresolved",
+                "selector": {"state": {"sent": True}},
+                "predicate": {"op": "eq", "path": "sent", "expected": True},
+                "required": True,
+            }
+        ]
+    )
     r = run(c, settings)
     assert r.verdict == Verdict.VERIFIED
     assert r.summary.passed == 1
@@ -24,31 +37,90 @@ def test_verified_when_all_required_pass(settings):
 
 
 def test_partial_when_required_pass_and_fail(settings):
-    c = contract([
-        {"id":"p1","description":"created","provider":"unresolved","selector":{"state":{"created":True}},"predicate":{"op":"eq","path":"created","expected":True},"required":True},
-        {"id":"p2","description":"assigned","provider":"unresolved","selector":{"state":{"assignees":[]}},"predicate":{"op":"contains","path":"assignees","expected":"alice"},"required":True},
-    ])
+    c = contract(
+        [
+            {
+                "id": "p1",
+                "description": "created",
+                "provider": "unresolved",
+                "selector": {"state": {"created": True}},
+                "predicate": {"op": "eq", "path": "created", "expected": True},
+                "required": True,
+            },
+            {
+                "id": "p2",
+                "description": "assigned",
+                "provider": "unresolved",
+                "selector": {"state": {"assignees": []}},
+                "predicate": {"op": "contains", "path": "assignees", "expected": "alice"},
+                "required": True,
+            },
+        ]
+    )
     assert run(c, settings).verdict == Verdict.PARTIAL
 
 
 def test_unknown_required_dominates_incomplete_verdict(settings):
-    c = contract([
-        {"id":"p1","description":"created","provider":"unresolved","selector":{"state":{"created":True}},"predicate":{"op":"eq","path":"created","expected":True},"required":True},
-        {"id":"p2","description":"external proof","provider":"unresolved","selector":{"reason":"missing id"},"predicate":{"op":"exists","path":"","expected":None},"required":True},
-    ])
+    c = contract(
+        [
+            {
+                "id": "p1",
+                "description": "created",
+                "provider": "unresolved",
+                "selector": {"state": {"created": True}},
+                "predicate": {"op": "eq", "path": "created", "expected": True},
+                "required": True,
+            },
+            {
+                "id": "p2",
+                "description": "external proof",
+                "provider": "unresolved",
+                "selector": {"reason": "missing id"},
+                "predicate": {"op": "exists", "path": "", "expected": None},
+                "required": True,
+            },
+        ]
+    )
     assert run(c, settings).verdict == Verdict.UNKNOWN
 
 
 def test_optional_failure_does_not_downgrade_required_success(settings):
-    c = contract([
-        {"id":"p1","description":"sent","provider":"unresolved","selector":{"state":{"sent":True}},"predicate":{"op":"eq","path":"sent","expected":True},"required":True},
-        {"id":"p2","description":"optional label","provider":"unresolved","selector":{"state":{"labels":[]}},"predicate":{"op":"contains","path":"labels","expected":"nice-to-have"},"required":False},
-    ])
+    c = contract(
+        [
+            {
+                "id": "p1",
+                "description": "sent",
+                "provider": "unresolved",
+                "selector": {"state": {"sent": True}},
+                "predicate": {"op": "eq", "path": "sent", "expected": True},
+                "required": True,
+            },
+            {
+                "id": "p2",
+                "description": "optional label",
+                "provider": "unresolved",
+                "selector": {"state": {"labels": []}},
+                "predicate": {"op": "contains", "path": "labels", "expected": "nice-to-have"},
+                "required": False,
+            },
+        ]
+    )
     assert run(c, settings).verdict == Verdict.VERIFIED
 
 
 def test_sensitive_selector_fields_are_redacted(settings):
-    c = contract([{"id":"p1","description":"safe evidence","provider":"unresolved","selector":{"state":{"ok":True},"api_key":"super-secret"},"predicate":{"op":"eq","path":"ok","expected":True},"required":True}])
+    c = contract(
+        [
+            {
+                "id": "p1",
+                "description": "safe evidence",
+                "provider": "unresolved",
+                "selector": {"state": {"ok": True}, "api_key": "super-secret"},
+                "predicate": {"op": "eq", "path": "ok", "expected": True},
+                "required": True,
+            }
+        ]
+    )
     r = run(c, settings)
     assert r.results[0].evidence.selector["api_key"] == "[REDACTED]"
     assert "super-secret" not in r.model_dump_json()

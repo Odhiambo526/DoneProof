@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.4
+
+- Centralized runtime/client/provider version reporting to prevent stale integration identifiers.
+- Added trusted-key receipt verification so customers can distinguish cryptographic integrity from issuer authenticity.
+- Clarified evidence-bundle and signing-key trust semantics across the API and documentation.
+- Documented fail-closed serverless startup diagnostics and the production readiness acceptance check.
+- Refreshed pilot-readiness documentation for durable PostgreSQL deployments.
+
 ## 0.9.3
 
 - Made the serverless entrypoint fail closed with a sanitized 503 diagnostic app instead of crashing during import when production configuration or storage initialization is invalid.

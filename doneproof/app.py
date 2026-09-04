@@ -15,6 +15,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, sta
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from . import __version__
 from .adapters.base import ProviderAdapter
 from .adapters.github import GitHubAdapter
 from .adapters.gmail import GmailAdapter
@@ -39,12 +40,14 @@ from .signing import ReceiptSigner
 from .store import Store
 from .web import CONSOLE_HTML, LANDING_HTML, certificate_html
 
-VERSION = "0.9.3"
+VERSION = __version__
 
 logger = logging.getLogger("doneproof.startup")
 
 
-def create_app(settings: Settings | None = None, adapter_overrides: dict[str, ProviderAdapter] | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, adapter_overrides: dict[str, ProviderAdapter] | None = None
+) -> FastAPI:
     settings = settings or get_settings()
     if settings.verification_timeout_seconds <= 0:
         raise RuntimeError("DONEPROOF_VERIFICATION_TIMEOUT_SECONDS must be greater than zero")
@@ -84,7 +87,16 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
             allow_origins=list(settings.cors_origins),
             allow_credentials=False,
             allow_methods=["GET", "POST"],
-            allow_headers=["Content-Type", "X-DoneProof-Key", "X-DoneProof-Signature", "X-DoneProof-Timestamp", "X-DoneProof-Event", "X-DoneProof-Object-ID", "Idempotency-Key", "X-Request-ID"],
+            allow_headers=[
+                "Content-Type",
+                "X-DoneProof-Key",
+                "X-DoneProof-Signature",
+                "X-DoneProof-Timestamp",
+                "X-DoneProof-Event",
+                "X-DoneProof-Object-ID",
+                "Idempotency-Key",
+                "X-Request-ID",
+            ],
         )
 
     @app.middleware("http")
@@ -96,11 +108,19 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
             else f"req_{uuid.uuid4().hex[:16]}"
         )
         started = time.perf_counter()
-        if request.url.path.startswith("/v1/") and not request.url.path.startswith("/v1/webhooks/") and request.url.path != "/v1/signing-key":
+        if (
+            request.url.path.startswith("/v1/")
+            and not request.url.path.startswith("/v1/webhooks/")
+            and request.url.path != "/v1/signing-key"
+        ):
             supplied = request.headers.get("X-DoneProof-Key") or ""
             if settings.auth_enabled:
                 tenant_id = next(
-                    (tenant for candidate, tenant in settings.api_keys.items() if hmac.compare_digest(candidate, supplied)),
+                    (
+                        tenant
+                        for candidate, tenant in settings.api_keys.items()
+                        if hmac.compare_digest(candidate, supplied)
+                    ),
                     None,
                 )
                 limiter_key = f"tenant:{tenant_id}" if tenant_id else "unauthorized"
@@ -117,7 +137,11 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         if content_length:
             try:
                 if int(content_length) > settings.max_body_bytes:
-                    return JSONResponse(status_code=413, content={"detail": "Request body exceeds configured limit"}, headers={"X-Request-ID": request_id})
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body exceeds configured limit"},
+                        headers={"X-Request-ID": request_id},
+                    )
             except ValueError:
                 pass
         response = await call_next(request)
@@ -127,7 +151,9 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/v1") else "public, max-age=300"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
+        )
         response.headers["X-DoneProof-Duration-Ms"] = f"{(time.perf_counter() - started) * 1000:.2f}"
         if settings.is_production:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -164,9 +190,23 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
     async def capabilities(ctx: TenantContext = Depends(require_tenant)):
         gmail_available = bool(settings.gmail_token_for(ctx.tenant_id))
         providers = [
-            ProviderCapability(provider="github", status="available", description="Issues and pull requests with time-bounded resource discovery."),
-            ProviderCapability(provider="gmail", status="available" if gmail_available else "configuration_required", description="Sent-vs-draft, recipients, subject, thread and attachment metadata."),
-            ProviderCapability(provider="webhook", status="available" if any(x.tenant_id == ctx.tenant_id for x in settings.webhook_sources.values()) else "configuration_required", description="Signed evidence events from customer systems and proprietary workflows."),
+            ProviderCapability(
+                provider="github",
+                status="available",
+                description="Issues and pull requests with time-bounded resource discovery.",
+            ),
+            ProviderCapability(
+                provider="gmail",
+                status="available" if gmail_available else "configuration_required",
+                description="Sent-vs-draft, recipients, subject, thread and attachment metadata.",
+            ),
+            ProviderCapability(
+                provider="webhook",
+                status="available"
+                if any(x.tenant_id == ctx.tenant_id for x in settings.webhook_sources.values())
+                else "configuration_required",
+                description="Signed evidence events from customer systems and proprietary workflows.",
+            ),
         ]
         return CapabilityResponse(
             version=VERSION,
@@ -178,7 +218,12 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
 
     @app.get("/v1/signing-key", tags=["Receipts"])
     async def signing_key():
-        return {"algorithm": "Ed25519", "key_id": app.state.signer.key_id, "public_key": app.state.signer.public_key_b64}
+        return {
+            "algorithm": "Ed25519",
+            "key_id": app.state.signer.key_id,
+            "public_key": app.state.signer.public_key_b64,
+            "trust_model": "Pin this public key through an independent channel before accepting receipt issuer authenticity.",
+        }
 
     @app.post("/v1/contracts/compile", response_model=CompletionContract, tags=["Contracts"])
     async def compile_contract(req: CompileRequest, ctx: TenantContext = Depends(require_tenant)):
@@ -187,11 +232,15 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         except RuntimeError as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Contract compiler could not produce a valid completion contract.") from exc
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Contract compiler could not produce a valid completion contract.",
+            ) from exc
         app.state.store.save_contract(ctx.tenant_id, contract)
-        app.state.store.audit(ctx.tenant_id, "contract.compiled", "contract", contract.id, {"conditions": len(contract.postconditions)})
+        app.state.store.audit(
+            ctx.tenant_id, "contract.compiled", "contract", contract.id, {"conditions": len(contract.postconditions)}
+        )
         return contract
-
 
     @app.post("/v1/runs", response_model=CompletionContract, tags=["Runs"])
     async def register_run(req: RegisterRunRequest, ctx: TenantContext = Depends(require_tenant)):
@@ -206,7 +255,13 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         baselines = await app.state.engine.snapshot(contract, ctx.tenant_id)
         for baseline in baselines:
             app.state.store.save_baseline(ctx.tenant_id, contract.id, baseline)
-        app.state.store.audit(ctx.tenant_id, "run.registered", "contract", contract.id, {"conditions": len(contract.postconditions), "baselines": len(baselines)})
+        app.state.store.audit(
+            ctx.tenant_id,
+            "run.registered",
+            "contract",
+            contract.id,
+            {"conditions": len(contract.postconditions), "baselines": len(baselines)},
+        )
         return contract
 
     @app.get("/v1/runs/{contract_id}", response_model=CompletionContract, tags=["Runs"])
@@ -232,14 +287,24 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
             previous = app.state.store.get_idempotency(ctx.tenant_id, idempotency_key)
             if previous:
                 if previous["request_hash"] != request_hash:
-                    raise HTTPException(status_code=409, detail="Idempotency-Key was already used for a different verification request")
+                    raise HTTPException(
+                        status_code=409, detail="Idempotency-Key was already used for a different verification request"
+                    )
                 cached = app.state.store.get_receipt(ctx.tenant_id, previous["receipt_id"])
                 if cached:
                     return cached
         baselines = app.state.store.get_baselines(ctx.tenant_id, contract_id)
-        receipt = await app.state.engine.verify(contract, ctx.tenant_id, assurance_level="registered", baselines=baselines)
+        receipt = await app.state.engine.verify(
+            contract, ctx.tenant_id, assurance_level="registered", baselines=baselines
+        )
         app.state.store.save_receipt(ctx.tenant_id, receipt)
-        app.state.store.audit(ctx.tenant_id, "run.verified", "receipt", receipt.receipt_id, {"contract_id": contract.id, "verdict": receipt.verdict.value, "assurance": receipt.assurance_level})
+        app.state.store.audit(
+            ctx.tenant_id,
+            "run.verified",
+            "receipt",
+            receipt.receipt_id,
+            {"contract_id": contract.id, "verdict": receipt.verdict.value, "assurance": receipt.assurance_level},
+        )
         if idempotency_key:
             app.state.store.save_idempotency(ctx.tenant_id, idempotency_key, request_hash, receipt.receipt_id)
         return receipt
@@ -263,7 +328,9 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
             previous = app.state.store.get_idempotency(ctx.tenant_id, idempotency_key)
             if previous:
                 if previous["request_hash"] != request_hash:
-                    raise HTTPException(status_code=409, detail="Idempotency-Key was already used for a different verification request")
+                    raise HTTPException(
+                        status_code=409, detail="Idempotency-Key was already used for a different verification request"
+                    )
                 cached = app.state.store.get_receipt(ctx.tenant_id, previous["receipt_id"])
                 if cached:
                     return cached
@@ -273,7 +340,13 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         receipt = await app.state.engine.verify(req.contract, ctx.tenant_id)
         app.state.store.save_receipt(ctx.tenant_id, receipt)
-        app.state.store.audit(ctx.tenant_id, "verification.completed", "receipt", receipt.receipt_id, {"contract_id": req.contract.id, "verdict": receipt.verdict.value, "assurance": receipt.assurance_level})
+        app.state.store.audit(
+            ctx.tenant_id,
+            "verification.completed",
+            "receipt",
+            receipt.receipt_id,
+            {"contract_id": req.contract.id, "verdict": receipt.verdict.value, "assurance": receipt.assurance_level},
+        )
         if idempotency_key:
             app.state.store.save_idempotency(ctx.tenant_id, idempotency_key, request_hash, receipt.receipt_id)
         return receipt
@@ -283,16 +356,31 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         if not requests:
             raise HTTPException(status_code=400, detail="Batch must contain at least one verification request")
         if len(requests) > settings.max_batch_size:
-            raise HTTPException(status_code=413, detail=f"Batch exceeds configured maximum of {settings.max_batch_size}")
+            raise HTTPException(
+                status_code=413, detail=f"Batch exceeds configured maximum of {settings.max_batch_size}"
+            )
         try:
             for item in requests:
                 app.state.store.save_contract(ctx.tenant_id, item.contract)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        receipts = list(await asyncio.gather(*(app.state.engine.verify(item.contract, ctx.tenant_id) for item in requests)))
+        receipts = list(
+            await asyncio.gather(*(app.state.engine.verify(item.contract, ctx.tenant_id) for item in requests))
+        )
         for receipt in receipts:
             app.state.store.save_receipt(ctx.tenant_id, receipt)
-            app.state.store.audit(ctx.tenant_id, "verification.completed", "receipt", receipt.receipt_id, {"contract_id": receipt.contract_id, "verdict": receipt.verdict.value, "assurance": receipt.assurance_level, "batch": True})
+            app.state.store.audit(
+                ctx.tenant_id,
+                "verification.completed",
+                "receipt",
+                receipt.receipt_id,
+                {
+                    "contract_id": receipt.contract_id,
+                    "verdict": receipt.verdict.value,
+                    "assurance": receipt.assurance_level,
+                    "batch": True,
+                },
+            )
         return receipts
 
     @app.get("/v1/receipts", response_model=list[VerificationReceipt], tags=["Receipts"])
@@ -311,10 +399,12 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         item = app.state.store.get_receipt(ctx.tenant_id, receipt_id)
         if not item:
             raise HTTPException(status_code=404, detail="Receipt not found")
-        # Receipts are self-verifying: historical receipts remain valid after
-        # signer rotation because each receipt carries its original public key.
+        # This endpoint checks cryptographic integrity against the key carried
+        # by the receipt. Issuer authenticity requires a separately pinned key.
         valid = ReceiptSigner.verify(item)
-        return ReceiptIntegrity(receipt_id=item.receipt_id, valid=valid, key_id=item.key_id, receipt_hash=item.receipt_hash)
+        return ReceiptIntegrity(
+            receipt_id=item.receipt_id, valid=valid, key_id=item.key_id, receipt_hash=item.receipt_hash
+        )
 
     @app.get("/v1/receipts/{receipt_id}/certificate", response_class=HTMLResponse, tags=["Receipts"])
     async def certificate(receipt_id: str, ctx: TenantContext = Depends(require_tenant)):
@@ -332,8 +422,14 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
         return {
             "schema": "doneproof-evidence-bundle/v1",
             "receipt": item.model_dump(mode="json"),
-            "integrity": {"valid": valid, "receipt_hash": item.receipt_hash, "key_id": item.key_id},
+            "integrity": {
+                "valid": valid,
+                "scope": "integrity_only",
+                "receipt_hash": item.receipt_hash,
+                "key_id": item.key_id,
+            },
             "signing_key": {"algorithm": "Ed25519", "key_id": item.key_id, "public_key": item.public_key},
+            "trust": {"issuer_authenticity": "requires_pinned_public_key"},
         }
 
     @app.get("/v1/audit", tags=["Workspace"])
@@ -388,9 +484,16 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
             event_id,
         )
         if inserted:
-            app.state.store.audit(source_cfg.tenant_id, "evidence.accepted", "webhook_event", event_id, {"source": source, "event_type": x_doneproof_event, "object_id": x_doneproof_object_id})
-        return WebhookEventReceipt(event_id=event_id, accepted=True, duplicate=not inserted, source=source, occurred_at=occurred_at)
-
+            app.state.store.audit(
+                source_cfg.tenant_id,
+                "evidence.accepted",
+                "webhook_event",
+                event_id,
+                {"source": source, "event_type": x_doneproof_event, "object_id": x_doneproof_object_id},
+            )
+        return WebhookEventReceipt(
+            event_id=event_id, accepted=True, duplicate=not inserted, source=source, occurred_at=occurred_at
+        )
 
     return app
 
@@ -403,7 +506,10 @@ def _startup_error_code(exc: Exception) -> str:
         return "configuration.signing_key"
     if "durable PostgreSQL" in message or "DATABASE_URL" in message:
         return "configuration.database_url"
-    if exc.__class__.__module__.startswith("psycopg") or exc.__class__.__name__ in {"OperationalError", "DatabaseError"}:
+    if exc.__class__.__module__.startswith("psycopg") or exc.__class__.__name__ in {
+        "OperationalError",
+        "DatabaseError",
+    }:
         return "storage.unavailable"
     if isinstance(exc, RuntimeError):
         return "configuration.invalid"

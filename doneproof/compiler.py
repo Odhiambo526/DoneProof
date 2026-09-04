@@ -9,7 +9,6 @@ import httpx
 from .config import Settings
 from .domain import CompletionContract
 
-
 _SELECTOR_PROPERTIES: dict[str, Any] = {
     "repo": {"type": ["string", "null"]},
     "kind": {"type": ["string", "null"], "enum": ["issue", "pull_request", None]},
@@ -112,18 +111,30 @@ class AstraCompiler:
         self.api_key = settings.openai_api_key
         self.model = settings.openai_model
 
-    async def compile(self, task: str, context: dict[str, Any], task_started_at: datetime | None = None) -> CompletionContract:
+    async def compile(
+        self, task: str, context: dict[str, Any], task_started_at: datetime | None = None
+    ) -> CompletionContract:
         if not self.api_key:
-            raise RuntimeError("Contract compiler is not connected. Submit a completion contract directly or configure OPENAI_API_KEY.")
+            raise RuntimeError(
+                "Contract compiler is not connected. Submit a completion contract directly or configure OPENAI_API_KEY."
+            )
         payload = {
             "model": self.model,
             "reasoning": {"effort": "low"},
             "input": [
                 {"role": "system", "content": SYSTEM},
-                {"role": "user", "content": f"Task:\n{task}\n\nKnown context JSON:\n{json.dumps(context, ensure_ascii=False)}"},
+                {
+                    "role": "user",
+                    "content": f"Task:\n{task}\n\nKnown context JSON:\n{json.dumps(context, ensure_ascii=False)}",
+                },
             ],
             "text": {
-                "format": {"type": "json_schema", "name": "completion_contract", "strict": True, "schema": CONTRACT_SCHEMA},
+                "format": {
+                    "type": "json_schema",
+                    "name": "completion_contract",
+                    "strict": True,
+                    "schema": CONTRACT_SCHEMA,
+                },
                 "verbosity": "low",
             },
         }
@@ -159,7 +170,9 @@ class AstraCompiler:
                 if number is not None:
                     if not isinstance(number, int) or isinstance(number, bool) or number < 1:
                         raise ValueError(f"compiled GitHub selector has invalid number for {pc.id}")
-                elif not any([s.get("title"), s.get("author"), s.get("head_ref") if s.get("kind") == "pull_request" else None]):
+                elif not any(
+                    [s.get("title"), s.get("author"), s.get("head_ref") if s.get("kind") == "pull_request" else None]
+                ):
                     raise ValueError(f"compiled GitHub discovery selector is too weak for {pc.id}")
             elif pc.provider == "gmail":
                 if not s.get("message_id") and not any([s.get("subject"), s.get("to"), s.get("thread_id")]):

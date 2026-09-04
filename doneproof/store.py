@@ -149,7 +149,9 @@ class Store:
             import psycopg
             from psycopg.rows import dict_row
         except ImportError as exc:  # pragma: no cover - packaging/CI protects this path
-            raise RuntimeError("PostgreSQL storage requires psycopg; install the doneproof package dependencies") from exc
+            raise RuntimeError(
+                "PostgreSQL storage requires psycopg; install the doneproof package dependencies"
+            ) from exc
         return psycopg.connect(self.dsn, row_factory=dict_row, connect_timeout=8)
 
     def _init_postgres(self) -> None:
@@ -304,7 +306,9 @@ class Store:
         else:
             with self._pg_connect() as con:
                 with con.cursor() as cur:
-                    cur.execute("SELECT body_json FROM contracts WHERE tenant_id=%s AND id=%s", (tenant_id, contract_id))
+                    cur.execute(
+                        "SELECT body_json FROM contracts WHERE tenant_id=%s AND id=%s", (tenant_id, contract_id)
+                    )
                     row = cur.fetchone()
             body = row["body_json"] if row else None
         return CompletionContract.model_validate_json(body) if body else None
@@ -319,7 +323,9 @@ class Store:
         else:
             with self._pg_connect() as con:
                 with con.cursor() as cur:
-                    cur.execute("SELECT body_json FROM receipts WHERE tenant_id=%s AND receipt_id=%s", (tenant_id, receipt_id))
+                    cur.execute(
+                        "SELECT body_json FROM receipts WHERE tenant_id=%s AND receipt_id=%s", (tenant_id, receipt_id)
+                    )
                     row = cur.fetchone()
             body = row["body_json"] if row else None
         return VerificationReceipt.model_validate_json(body) if body else None
@@ -359,12 +365,15 @@ class Store:
         else:
             with self._pg_connect() as con:
                 with con.cursor() as cur:
-                    cur.execute("SELECT verdict, COUNT(*) AS c FROM receipts WHERE tenant_id=%s GROUP BY verdict", (tenant_id,))
+                    cur.execute(
+                        "SELECT verdict, COUNT(*) AS c FROM receipts WHERE tenant_id=%s GROUP BY verdict", (tenant_id,)
+                    )
                     grouped = [(row["verdict"], row["c"]) for row in cur.fetchall()]
                     cur.execute("SELECT COUNT(*) AS c FROM receipts WHERE tenant_id=%s", (tenant_id,))
                     total = cur.fetchone()["c"]
                     cur.execute(
-                        "SELECT body_json FROM receipts WHERE tenant_id=%s ORDER BY verified_at DESC LIMIT 200", (tenant_id,)
+                        "SELECT body_json FROM receipts WHERE tenant_id=%s ORDER BY verified_at DESC LIMIT 200",
+                        (tenant_id,),
                     )
                     recent_bodies = [row["body_json"] for row in cur.fetchall()]
         counts: dict[str, Any] = {"VERIFIED": 0, "PARTIAL": 0, "FAILED": 0, "UNKNOWN": 0}
@@ -472,7 +481,17 @@ class Store:
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         payload_hash = hashlib.sha256(canonical.encode()).hexdigest()
         now = datetime.now(timezone.utc).isoformat()
-        values = (event_id, tenant_id, source, event_type, object_id, occurred_at.isoformat(), canonical, payload_hash, now)
+        values = (
+            event_id,
+            tenant_id,
+            source,
+            event_type,
+            object_id,
+            occurred_at.isoformat(),
+            canonical,
+            payload_hash,
+            now,
+        )
         if self.backend == "sqlite":
             with self._connect() as con:
                 cur = con.execute(

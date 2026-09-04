@@ -13,14 +13,13 @@ from .domain import (
     ConditionResult,
     ConditionStatus,
     Evidence,
+    Verdict,
     VerificationReceipt,
     VerificationSummary,
-    Verdict,
 )
 from .predicates import evaluate
 from .security import sanitize
 from .signing import ReceiptSigner
-
 
 logger = logging.getLogger("doneproof.verification")
 
@@ -98,7 +97,9 @@ class VerificationEngine:
                 contract.id,
                 pc.id,
             )
-            return self._result_unknown(pc, safe_selector, "Verification timed out before authoritative state was established.", started)
+            return self._result_unknown(
+                pc, safe_selector, "Verification timed out before authoritative state was established.", started
+            )
         except Exception as exc:
             logger.warning(
                 "verification_provider_error provider=%s contract_id=%s condition_id=%s error_type=%s",
@@ -107,7 +108,9 @@ class VerificationEngine:
                 pc.id,
                 type(exc).__name__,
             )
-            return self._result_unknown(pc, safe_selector, "Provider verification was unavailable or returned an invalid response.", started)
+            return self._result_unknown(
+                pc, safe_selector, "Provider verification was unavailable or returned an invalid response.", started
+            )
 
     def _result_unknown(self, pc, selector: dict[str, Any], reason: str, started: float) -> ConditionResult:
         return ConditionResult(
@@ -146,7 +149,9 @@ class VerificationEngine:
         baselines: dict[str, ConditionResult] | None = None,
     ) -> VerificationReceipt:
         started = time.perf_counter()
-        results = list(await asyncio.gather(*(self._verify_one(pc, contract, tenant_id) for pc in contract.postconditions)))
+        results = list(
+            await asyncio.gather(*(self._verify_one(pc, contract, tenant_id) for pc in contract.postconditions))
+        )
         baseline_map = baselines or {}
         pc_by_id = {pc.id: pc for pc in contract.postconditions}
         for result in results:

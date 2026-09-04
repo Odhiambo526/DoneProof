@@ -46,9 +46,7 @@ def test_postgres_contract_receipt_and_stats(pg_store, settings):
     pg_store.save_contract(tenant, contract)
     assert pg_store.get_contract(tenant, contract.id).task == contract.task
 
-    receipt = asyncio.run(
-        VerificationEngine({"unresolved": MockAdapter()}, ReceiptSigner(settings)).verify(contract)
-    )
+    receipt = asyncio.run(VerificationEngine({"unresolved": MockAdapter()}, ReceiptSigner(settings)).verify(contract))
     pg_store.save_receipt(tenant, receipt)
     loaded = pg_store.get_receipt(tenant, receipt.receipt_id)
     assert loaded is not None and loaded.receipt_hash == receipt.receipt_hash
@@ -74,15 +72,13 @@ def test_postgres_baseline_idempotency_webhook_and_audit(pg_store, settings):
     tenant = "pg-ops"
     contract = _contract("Operations")
     contract.postconditions[0].require_change = True
-    result = asyncio.run(
-        VerificationEngine({"unresolved": MockAdapter()}, ReceiptSigner(settings)).snapshot(contract)
-    )[0]
+    result = asyncio.run(VerificationEngine({"unresolved": MockAdapter()}, ReceiptSigner(settings)).snapshot(contract))[
+        0
+    ]
     pg_store.save_baseline(tenant, contract.id, result)
     assert pg_store.get_baselines(tenant, contract.id)["p1"].id == "p1"
 
-    receipt = asyncio.run(
-        VerificationEngine({"unresolved": MockAdapter()}, ReceiptSigner(settings)).verify(contract)
-    )
+    receipt = asyncio.run(VerificationEngine({"unresolved": MockAdapter()}, ReceiptSigner(settings)).verify(contract))
     pg_store.save_receipt(tenant, receipt)
     pg_store.save_idempotency(tenant, "idem-pg", "hash-pg", receipt.receipt_id)
     assert pg_store.get_idempotency(tenant, "idem-pg")["receipt_id"] == receipt.receipt_id
@@ -104,7 +100,9 @@ def test_postgres_baseline_idempotency_webhook_and_audit(pg_store, settings):
 
 def test_postgres_production_app_starts_ready(settings):
     from dataclasses import replace
+
     from fastapi.testclient import TestClient
+
     from doneproof.app import create_app
 
     prod = replace(

@@ -109,7 +109,7 @@ Each receipt includes:
 - receipt hash
 - Ed25519 public key and signature
 
-The receipt is self-verifying. Key rotation does not invalidate historical receipts because the original public key is embedded in the signed record.
+The receipt is self-contained for **integrity verification** because the signing public key is embedded in the signed record. That embedded key is not, by itself, proof of issuer identity: customers should pin the expected DoneProof public key through an independent channel. Historical receipts remain verifiable after rotation when the corresponding previously trusted key is retained.
 
 ## Assurance levels
 

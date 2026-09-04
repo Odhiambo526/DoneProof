@@ -5,7 +5,6 @@ from typing import Any
 
 import httpx
 
-
 _RETRYABLE = {429, 500, 502, 503, 504}
 
 

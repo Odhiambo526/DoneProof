@@ -5,7 +5,6 @@ from typing import Any
 
 from .domain import ConditionStatus, Predicate
 
-
 _MISSING = object()
 
 

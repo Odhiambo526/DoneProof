@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from .. import __version__
 from ..http import resilient_get
 from .base import ObservationContext, ProviderAdapter, ProviderObservation
 
@@ -42,7 +43,7 @@ class GitHubAdapter(ProviderAdapter):
         h = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "doneproof/0.9.1",
+            "User-Agent": f"doneproof/{__version__}",
         }
         if self.token:
             h["Authorization"] = f"Bearer {self.token}"
@@ -148,7 +149,11 @@ class GitHubAdapter(ProviderAdapter):
                         continue
                     if author is not None and (item.get("user") or {}).get("login") != author:
                         continue
-                    if kind == "pull_request" and head_ref is not None and (item.get("head") or {}).get("ref") != head_ref:
+                    if (
+                        kind == "pull_request"
+                        and head_ref is not None
+                        and (item.get("head") or {}).get("ref") != head_ref
+                    ):
                         continue
                     candidates.append(item)
 

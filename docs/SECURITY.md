@@ -59,7 +59,7 @@ Events outside the replay window are rejected and accepted events receive determ
 
 Receipts are Ed25519-signed and include both an exact completion-contract hash and the public key used for signing.
 
-Historical receipts verify against their embedded public key after key rotation. Production deployments should still manage trust and rotation using a secret manager and, for regulated environments, KMS/HSM-backed signing.
+Historical receipts can be checked for integrity against their embedded public key after key rotation. Issuer authenticity requires the verifier to retain or otherwise trust the corresponding DoneProof public key independently. Production deployments should pin signer keys during onboarding and manage trust/rotation using a secret manager and, for regulated environments, KMS/HSM-backed signing.
 
 ## Tenant isolation and immutability
 

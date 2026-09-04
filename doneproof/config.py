@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import os
 from dataclasses import dataclass
@@ -67,7 +68,10 @@ class Settings:
 
     @property
     def durable_storage(self) -> bool:
-        return bool(self.database_url and (self.database_url.startswith("postgresql://") or self.database_url.startswith("postgres://")))
+        return bool(
+            self.database_url
+            and (self.database_url.startswith("postgresql://") or self.database_url.startswith("postgres://"))
+        )
 
     @property
     def auth_enabled(self) -> bool:
@@ -84,8 +88,8 @@ class Settings:
     def has_stable_signing_key(self) -> bool:
         if self.signing_seed_b64:
             try:
-                return len(base64.b64decode(self.signing_seed_b64)) == 32
-            except Exception:
+                return len(base64.b64decode(self.signing_seed_b64, validate=True)) == 32
+            except (ValueError, TypeError, binascii.Error):
                 return False
         return bool(self.legacy_receipt_key and self.legacy_receipt_key != "dev-only-change-me")
 
