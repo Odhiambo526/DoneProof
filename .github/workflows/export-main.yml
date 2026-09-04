@@ -1,0 +1,26 @@
+name: export-main
+
+on:
+  push:
+    branches: [doneproof-0.9.4-export]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Create exact main archive
+        run: |
+          tar --exclude=.git -czf /tmp/doneproof-main.tar.gz .
+          sha256sum /tmp/doneproof-main.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: doneproof-main
+          path: /tmp/doneproof-main.tar.gz
+          if-no-files-found: error
+          retention-days: 1
