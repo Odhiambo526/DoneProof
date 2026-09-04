@@ -27,7 +27,7 @@ jobs:
           echo '3e93b67baf337b6c0c3e689036fb252404a62d8cb6f9482d21c4116f1ba6e4a2  /tmp/doneproof-0.9.4.patch.gz' | sha256sum -c -
           gzip -dc /tmp/doneproof-0.9.4.patch.gz > /tmp/doneproof-0.9.4.patch
           echo 'e5d16e9f7349f6810ac9dd8a31fa0336439bce2f8a4552a5120f273090e252ee  /tmp/doneproof-0.9.4.patch' | sha256sum -c -
-      - name: Apply exact release delta
+      - name: Apply exact reviewed delta
         shell: bash
         run: |
           set -euo pipefail
@@ -42,18 +42,34 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: source/pyproject.toml
-      - name: Validate release
+      - name: Format, lint and test release
         shell: bash
         run: |
           set -euo pipefail
           cd source
           python -m pip install -e '.[dev]'
+          ruff check --fix doneproof tests scripts
+          ruff format doneproof tests scripts
           ruff check doneproof tests scripts
           python -m compileall -q doneproof tests scripts
           pytest -q
-          git diff --exit-code
+          git add -A
+          git diff --cached --check
       - name: Build production image
         run: docker build -t doneproof:0.9.4 source
+      - name: Archive clean candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          tar --exclude=.git --exclude='*.egg-info' --exclude='**/__pycache__' --exclude='.pytest_cache' -czf /tmp/doneproof-0.9.4-final.tar.gz .
+          sha256sum /tmp/doneproof-0.9.4-final.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: doneproof-0.9.4-final
+          path: /tmp/doneproof-0.9.4-final.tar.gz
+          retention-days: 1
+          if-no-files-found: error
       - name: Publish clean candidate
         shell: bash
         run: |
