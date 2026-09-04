@@ -33,11 +33,12 @@ class Store:
                 """
                 PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS contracts (
-                    id TEXT PRIMARY KEY,
+                    id TEXT NOT NULL,
                     task TEXT NOT NULL,
                     body_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    tenant_id TEXT NOT NULL DEFAULT 'default'
+                    tenant_id TEXT NOT NULL DEFAULT 'default',
+                    PRIMARY KEY(tenant_id, id)
                 );
                 CREATE TABLE IF NOT EXISTS receipts (
                     receipt_id TEXT PRIMARY KEY,
@@ -65,6 +66,15 @@ class Store:
                     created_at TEXT NOT NULL,
                     PRIMARY KEY(tenant_id, idempotency_key)
                 );
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    object_type TEXT NOT NULL,
+                    object_id TEXT,
+                    metadata_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS evidence_events (
                     event_id TEXT PRIMARY KEY,
                     tenant_id TEXT NOT NULL,
@@ -80,13 +90,38 @@ class Store:
             )
             self._add_column_if_missing(con, "contracts", "tenant_id", "tenant_id TEXT NOT NULL DEFAULT 'default'")
             self._add_column_if_missing(con, "receipts", "tenant_id", "tenant_id TEXT NOT NULL DEFAULT 'default'")
+            self._migrate_contract_primary_key(con)
             con.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_receipts_tenant_time ON receipts(tenant_id, verified_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_receipts_contract ON receipts(tenant_id, contract_id, verified_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_events_lookup ON evidence_events(tenant_id, source, event_type, object_id, occurred_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_audit_tenant_time ON audit_events(tenant_id, created_at DESC);
                 """
             )
+
+    def _migrate_contract_primary_key(self, con: sqlite3.Connection) -> None:
+        """Upgrade legacy global contract IDs to tenant-scoped IDs without losing data."""
+        info = con.execute("PRAGMA table_info(contracts)").fetchall()
+        pk_cols = [row[1] for row in sorted((r for r in info if r[5]), key=lambda r: r[5])]
+        if pk_cols != ["id"]:
+            return
+        con.executescript(
+            """
+            ALTER TABLE contracts RENAME TO contracts_legacy_global_pk;
+            CREATE TABLE contracts (
+                id TEXT NOT NULL,
+                task TEXT NOT NULL,
+                body_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                tenant_id TEXT NOT NULL DEFAULT 'default',
+                PRIMARY KEY(tenant_id, id)
+            );
+            INSERT INTO contracts(id,task,body_json,created_at,tenant_id)
+                SELECT id,task,body_json,created_at,tenant_id FROM contracts_legacy_global_pk;
+            DROP TABLE contracts_legacy_global_pk;
+            """
+        )
 
     def ping(self) -> bool:
         with self._connect() as con:
@@ -95,11 +130,15 @@ class Store:
     def save_contract(self, tenant_id: str, contract: CompletionContract):
         body = contract.model_dump_json()
         with self._connect() as con:
-            existing = con.execute("SELECT tenant_id FROM contracts WHERE id=?", (contract.id,)).fetchone()
-            if existing and existing[0] != tenant_id:
-                raise ValueError("contract id is already allocated to another workspace")
+            existing = con.execute(
+                "SELECT body_json FROM contracts WHERE tenant_id=? AND id=?", (tenant_id, contract.id)
+            ).fetchone()
+            if existing:
+                if existing[0] != body:
+                    raise ValueError("contract id already exists with different content")
+                return
             con.execute(
-                "INSERT OR REPLACE INTO contracts(id, task, body_json, created_at, tenant_id) VALUES(?,?,?,?,?)",
+                "INSERT INTO contracts(id, task, body_json, created_at, tenant_id) VALUES(?,?,?,?,?)",
                 (contract.id, contract.task, body, contract.created_at.isoformat(), tenant_id),
             )
 
@@ -153,7 +192,25 @@ class Store:
             counts[row[0]] = row[1]
         counts["total"] = total
         counts["verification_rate"] = round((counts["VERIFIED"] / total * 100), 1) if total else 0.0
+        with self._connect() as con:
+            recent = con.execute(
+                "SELECT body_json FROM receipts WHERE tenant_id=? ORDER BY verified_at DESC LIMIT 200", (tenant_id,)
+            ).fetchall()
+        durations: list[float] = []
+        providers: dict[str, int] = {}
+        for row in recent:
+            try:
+                body = json.loads(row[0])
+                durations.append(float(body.get("duration_ms") or 0))
+                for provider in (body.get("summary") or {}).get("providers", []):
+                    providers[str(provider)] = providers.get(str(provider), 0) + 1
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+        counts["average_duration_ms"] = round(sum(durations) / len(durations), 2) if durations else 0.0
+        counts["providers"] = providers
         return counts
+
+
 
     def save_baseline(self, tenant_id: str, contract_id: str, result) -> None:
         with self._connect() as con:
@@ -236,3 +293,22 @@ class Store:
                 "payload_hash": row["payload_hash"],
             })
         return out
+
+    def audit(self, tenant_id: str, action: str, object_type: str, object_id: str | None = None, metadata: dict[str, Any] | None = None) -> None:
+        body = json.dumps(metadata or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        with self._connect() as con:
+            con.execute(
+                "INSERT INTO audit_events(tenant_id,action,object_type,object_id,metadata_json,created_at) VALUES(?,?,?,?,?,?)",
+                (tenant_id, action, object_type, object_id, body, datetime.now(timezone.utc).isoformat()),
+            )
+
+    def list_audit(self, tenant_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT action,object_type,object_id,metadata_json,created_at FROM audit_events WHERE tenant_id=? ORDER BY id DESC LIMIT ?",
+                (tenant_id, max(1, min(limit, 500))),
+            ).fetchall()
+        return [
+            {"action": r[0], "object_type": r[1], "object_id": r[2], "metadata": json.loads(r[3]), "created_at": r[4]}
+            for r in rows
+        ]

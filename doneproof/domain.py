@@ -8,7 +8,8 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, model_validator
 
 
-ProviderName = Literal["github", "gmail", "webhook", "mock", "unresolved"]
+ProviderName = Literal["github", "gmail", "webhook", "unresolved"]
+AssuranceLevel = Literal["registered", "submitted"]
 
 
 class Verdict(str, Enum):
@@ -31,23 +32,23 @@ class Predicate(BaseModel):
 
 
 class Postcondition(BaseModel):
-    id: str = Field(min_length=1, max_length=64)
-    description: str = Field(min_length=2, max_length=300)
-    provider: ProviderName
-    selector: dict[str, Any]
-    predicate: Predicate
-    required: bool = True
-    require_change: bool = False
+    id: str = Field(min_length=1, max_length=64, description="Stable condition identifier within the contract.")
+    description: str = Field(min_length=2, max_length=300, description="Human-readable business outcome being verified.")
+    provider: ProviderName = Field(description="Authoritative evidence provider used for this condition.")
+    selector: dict[str, Any] = Field(description="Provider-specific resource lookup constraints. Credentials must not be placed here.")
+    predicate: Predicate = Field(description="Deterministic check evaluated against normalized provider state.")
+    required: bool = Field(default=True, description="Required conditions determine the overall verdict.")
+    require_change: bool = Field(default=False, description="Require a registered pre-execution false-to-true transition instead of state-only assurance.")
 
 
 class CompletionContract(BaseModel):
-    schema_version: str = "1.0"
-    id: str = Field(default_factory=lambda: f"cc_{uuid4().hex[:16]}")
-    task: str = Field(min_length=3, max_length=4000)
-    assumptions: list[str] = Field(default_factory=list, max_length=30)
-    task_started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    postconditions: list[Postcondition] = Field(min_length=1, max_length=50)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    schema_version: str = Field(default="1.0", description="Completion-contract schema version.")
+    id: str = Field(default_factory=lambda: f"cc_{uuid4().hex[:16]}", description="Immutable contract identifier within a workspace.")
+    task: str = Field(min_length=3, max_length=4000, description="Requested business outcome in human-readable form.")
+    assumptions: list[str] = Field(default_factory=list, max_length=30, description="Explicit assumptions used when translating intent into verifiable conditions.")
+    task_started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Verification time boundary. Registered runs replace caller input with server time.")
+    postconditions: list[Postcondition] = Field(min_length=1, max_length=50, description="Machine-checkable outcomes that define completion.")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Contract creation timestamp.")
 
     @model_validator(mode="after")
     def validate_contract(self):
@@ -92,11 +93,12 @@ class VerificationSummary(BaseModel):
 
 
 class VerificationReceipt(BaseModel):
-    schema_version: str = "1.0"
-    assurance_level: Literal["registered", "submitted", "synthetic"] = "submitted"
-    receipt_id: str = Field(default_factory=lambda: f"vr_{uuid4().hex[:20]}")
-    contract_id: str
-    task: str
+    schema_version: str = Field(default="1.0", description="Verification-receipt schema version.")
+    assurance_level: AssuranceLevel = Field(default="submitted", description="Whether DoneProof established the assurance boundary before execution.")
+    receipt_id: str = Field(default_factory=lambda: f"vr_{uuid4().hex[:20]}", description="Unique verification receipt identifier.")
+    contract_id: str = Field(description="Completion contract verified by this receipt.")
+    contract_hash: str = Field(default="", description="SHA-256 of the exact canonical completion contract.")
+    task: str = Field(description="Human-readable requested outcome copied from the contract.")
     verdict: Verdict
     summary: VerificationSummary
     results: list[ConditionResult]

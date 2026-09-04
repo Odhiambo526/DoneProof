@@ -11,12 +11,17 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from doneproof.adapters.mock import MockAdapter
+from doneproof.adapters.base import ObservationContext, ProviderAdapter, ProviderObservation
 from doneproof.config import Settings
 from doneproof.domain import CompletionContract
 from doneproof.engine import VerificationEngine
 from doneproof.signing import ReceiptSigner
 from doneproof.store import Store
+
+
+class MockAdapter(ProviderAdapter):
+    async def observe(self, selector, context: ObservationContext) -> ProviderObservation:
+        return ProviderObservation(state=selector["state"], source_url="benchmark://local")
 
 
 def settings(db: str) -> Settings:
@@ -25,7 +30,6 @@ def settings(db: str) -> Settings:
         db_path=db,
         api_keys={},
         cors_origins=(),
-        enable_demo=True,
         verification_timeout_seconds=3.0,
         openai_api_key=None,
         openai_model="gpt-6-astra",
@@ -37,6 +41,8 @@ def settings(db: str) -> Settings:
         signing_seed_b64=base64.b64encode(b"B" * 32).decode(),
         legacy_receipt_key=None,
         max_body_bytes=1048576,
+        requests_per_minute=120,
+        max_batch_size=25,
     )
 
 
@@ -48,7 +54,7 @@ def contract(n: int = 8) -> CompletionContract:
                 {
                     "id": f"p{i}",
                     "description": f"condition {i}",
-                    "provider": "mock",
+                    "provider": "unresolved",
                     "selector": {"state": {"ok": True, "index": i}},
                     "predicate": {"op": "eq", "path": "ok", "expected": True},
                     "required": True,
@@ -78,7 +84,7 @@ def percentile(values: list[float], p: float) -> float:
 def main() -> None:
     with tempfile.TemporaryDirectory() as td:
         cfg = settings(str(Path(td) / "bench.db"))
-        engine = VerificationEngine({"mock": MockAdapter()}, ReceiptSigner(cfg), timeout_seconds=2)
+        engine = VerificationEngine({"unresolved": MockAdapter()}, ReceiptSigner(cfg), timeout_seconds=2)
         c = contract()
         count = 1000
         t0 = time.perf_counter()

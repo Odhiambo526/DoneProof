@@ -37,7 +37,6 @@ class Settings:
     db_path: str
     api_keys: dict[str, str]
     cors_origins: tuple[str, ...]
-    enable_demo: bool
     verification_timeout_seconds: float
     openai_api_key: str | None
     openai_model: str
@@ -49,6 +48,8 @@ class Settings:
     signing_seed_b64: str | None
     legacy_receipt_key: str | None
     max_body_bytes: int
+    requests_per_minute: int
+    max_batch_size: int
 
     @property
     def auth_enabled(self) -> bool:
@@ -101,7 +102,6 @@ def get_settings() -> Settings:
         db_path=os.getenv("DONEPROOF_DB", "./doneproof.db"),
         api_keys=api_keys,
         cors_origins=cors,
-        enable_demo=_bool("DONEPROOF_ENABLE_DEMO", default=False),
         verification_timeout_seconds=float(os.getenv("DONEPROOF_VERIFICATION_TIMEOUT_SECONDS", "15")),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_model=os.getenv("OPENAI_MODEL", "gpt-6-astra"),
@@ -113,4 +113,6 @@ def get_settings() -> Settings:
         signing_seed_b64=os.getenv("DONEPROOF_SIGNING_SEED_B64"),
         legacy_receipt_key=os.getenv("DONEPROOF_RECEIPT_KEY"),
         max_body_bytes=int(os.getenv("DONEPROOF_MAX_BODY_BYTES", "1048576")),
+        requests_per_minute=int(os.getenv("DONEPROOF_REQUESTS_PER_MINUTE", "120")),
+        max_batch_size=int(os.getenv("DONEPROOF_MAX_BATCH_SIZE", "25")),
     )

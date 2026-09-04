@@ -15,7 +15,6 @@ def settings(tmp_path):
         db_path=str(tmp_path / "doneproof.db"),
         api_keys={},
         cors_origins=(),
-        enable_demo=True,
         verification_timeout_seconds=2.0,
         openai_api_key=None,
         openai_model="gpt-6-astra",
@@ -27,6 +26,8 @@ def settings(tmp_path):
         signing_seed_b64=base64.b64encode(b"T" * 32).decode(),
         legacy_receipt_key=None,
         max_body_bytes=1048576,
+        requests_per_minute=120,
+        max_batch_size=25,
     )
 
 
