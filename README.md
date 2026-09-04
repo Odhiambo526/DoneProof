@@ -1,77 +1,64 @@
 # DoneProof
 
-**Outcome assurance infrastructure for AI agents.**
+**Independent outcome assurance for AI agents.**
 
-DoneProof independently verifies that an AI agent produced the external outcome a user requested, then emits a signed evidence receipt.
+AI agents can say a task is complete. DoneProof checks the external system and determines whether the requested outcome is actually true.
 
-An executor saying **“done”** is never treated as proof.
+It works independently of the executor: OpenAI, Anthropic, Google, browser agents, RPA, internal agents, or conventional automation can all be verified through the same assurance layer.
 
-## Why DoneProof
+> **Execution tells you what the agent attempted. DoneProof tells you what became true.**
 
-Agent systems are increasingly able to send email, update records, create pull requests, submit forms, trigger refunds, and operate internal business software. Tool-call success is not the same as outcome success.
+## The problem
 
-DoneProof separates execution from assurance:
+An agent can report success when an email is still a draft, a GitHub issue has the wrong assignee, a refund was requested but never completed, or a CRM update landed on the wrong record.
+
+Tracing and agent observability help explain **how the agent behaved**. DoneProof answers a different question:
+
+> **Did the business outcome actually happen?**
+
+## How it works
 
 ```text
-human intent
-    ↓
-completion contract
-    ↓
-agent / automation performs work
-    ↓
-independent provider observation
-    ↓
-deterministic postconditions
-    ↓
-VERIFIED / PARTIAL / FAILED / UNKNOWN
-    ↓
-Ed25519-signed evidence receipt
+1. Define the outcome
+        ↓
+2. DoneProof registers the verification contract
+        ↓
+3. Any agent or automation performs the work
+        ↓
+4. DoneProof independently reads authoritative state
+        ↓
+5. Deterministic postconditions are evaluated
+        ↓
+6. VERIFIED / PARTIAL / FAILED / UNKNOWN
+        ↓
+7. Ed25519-signed evidence receipt
 ```
 
-## Pilot release
+DoneProof never accepts the executor's own success message as evidence.
 
-DoneProof `0.8.0` is designed for controlled industry pilots and integration experiments.
+## What can be verified today
 
-Supported evidence paths:
+- **GitHub** — issues and pull requests, including safe discovery of newly created resources.
+- **Gmail** — sent vs draft, recipients, subject, thread and attachment metadata.
+- **Trusted webhooks** — signed outcome evidence from CRMs, ERPs, payment systems, support platforms and internal services.
+- **Batch evaluation** — compare reported agent success against independently verified outcomes across pilot datasets.
 
-- **GitHub** — issues and pull requests, including time-bounded discovery when the final resource number is not known in advance.
-- **Gmail** — distinguishes `SENT` from `DRAFT`, and verifies recipients, subject, thread and attachment metadata.
-- **Trusted webhooks** — signed evidence events from ERPs, CRMs, payment systems, support platforms, internal APIs, or proprietary workflows.
+The natural-language contract compiler is optional. Explicit completion contracts work without any model dependency.
 
-The optional model compiler converts natural-language intent into a completion contract. The verification engine does not depend on a model and can be used immediately with explicit contracts.
+## Verdicts
 
-## Core invariant
+| Verdict | Meaning |
+|---|---|
+| `VERIFIED` | Every required outcome is supported by authoritative evidence. |
+| `PARTIAL` | Some required outcomes passed and others failed. |
+| `FAILED` | Required outcomes failed and none passed. |
+| `UNKNOWN` | DoneProof could not establish authoritative state safely. |
 
-> A registered run cannot become `VERIFIED` unless every required postcondition independently passes against evidence observed after DoneProof registered the run.
+`UNKNOWN` is intentional. An assurance system should refuse to certify what it cannot prove.
 
-DoneProof returns `UNKNOWN` when authoritative state cannot be established safely. It does not guess its way to success.
+## Recommended assurance flow
 
-## Quick start
-
-```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -e '.[dev]'
-cp .env.example .env
-uvicorn doneproof.app:app --host 0.0.0.0 --port 8000
-```
-
-Open:
-
-- Product surface: `http://localhost:8000/`
-- Assurance console: `http://localhost:8000/console`
-- API reference: `http://localhost:8000/docs`
-- Readiness: `http://localhost:8000/ready`
-
-Or run with Docker:
-
-```bash
-docker compose up --build
-```
-
-## Recommended high-assurance flow
-
-### 1. Register the intended outcome before execution
+### 1. Register before execution
 
 ```bash
 curl -X POST http://localhost:8000/v1/runs \
@@ -80,13 +67,13 @@ curl -X POST http://localhost:8000/v1/runs \
   --data-binary @examples/github_registered_run.json
 ```
 
-DoneProof stamps the trusted `task_started_at` boundary on the server. For mutable existing resources, set `require_change: true` on a postcondition; DoneProof captures a minimal pre-execution baseline and requires an unsatisfied → satisfied transition before crediting the agent.
+DoneProof establishes the trusted start time. For updates to existing resources, `require_change: true` records a pre-execution baseline and requires an unsatisfied → satisfied transition.
 
-### 2. Let the agent perform the action
+### 2. Run the agent
 
-DoneProof does not need to be the executor. The action can come from any model, agent framework, browser agent, RPA system, or internal automation.
+Your existing executor performs the task. DoneProof does not need to control execution.
 
-### 3. Verify the registered run
+### 3. Verify the outcome
 
 ```bash
 curl -X POST http://localhost:8000/v1/runs/cc_xxx/verify \
@@ -94,82 +81,71 @@ curl -X POST http://localhost:8000/v1/runs/cc_xxx/verify \
   -H 'Idempotency-Key: agent-run-1842'
 ```
 
-The response is a signed `VerificationReceipt` with condition-level evidence.
+The response is a signed verification receipt containing the exact contract hash, condition-level evidence, verdict, timing and signature.
 
-## Verdicts
+## Quick start
 
-| Verdict | Meaning |
-|---|---|
-| `VERIFIED` | Every required outcome independently passed. |
-| `PARTIAL` | Required outcomes contain both pass and fail results. |
-| `FAILED` | Required outcomes failed and none passed. |
-| `UNKNOWN` | Required authoritative state could not be established safely. |
-
-Optional postconditions never downgrade a fully satisfied required outcome.
-
-## Signed receipts
-
-Receipts are signed with Ed25519 and include:
-
-- original task and contract ID
-- assurance level (`registered`, `submitted`, or `synthetic`)
-- condition-level PASS / FAIL / UNKNOWN
-- minimal observed evidence
-- provider source reference
-- per-condition latency
-- overall duration
-- SHA-256 receipt hash
-- Ed25519 public key ID and signature
-
-Integrity can be checked with:
-
-```text
-GET /v1/receipts/{receipt_id}/integrity
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e '.[dev]'
+cp .env.example .env
+uvicorn doneproof.app:app --host 0.0.0.0 --port 8000 --env-file .env
 ```
 
-A human-readable certificate is available at:
+Open:
 
-```text
-GET /v1/receipts/{receipt_id}/certificate
+- Product page: `http://localhost:8000/`
+- Assurance console: `http://localhost:8000/console`
+- API reference: `http://localhost:8000/docs`
+- Readiness: `http://localhost:8000/ready`
+
+Or:
+
+```bash
+docker compose up --build
 ```
 
-## Security posture
+## Documentation
 
-DoneProof intentionally avoids a generic arbitrary-URL verifier. Provider adapters use constrained endpoints, and webhook ingestion requires HMAC authentication plus a replay window.
+- [Product overview](docs/PRODUCT_OVERVIEW.md)
+- [Architecture and trust model](docs/ARCHITECTURE.md)
+- [Integration guide](docs/INTEGRATION_GUIDE.md)
+- [Industry pilot guide](docs/PILOT_GUIDE.md)
+- [Pilot report template](docs/PILOT_REPORT_TEMPLATE.md)
+- [Receipt format and verification](docs/RECEIPTS.md)
+- [Security model](docs/SECURITY.md)
+- [Pilot deployment](docs/DEPLOYMENT.md)
+- [Python client](docs/PYTHON_CLIENT.md)
+- [FAQ](docs/FAQ.md)
 
-Production deployments should configure:
+## Security principles
 
-- workspace API keys
-- a persistent Ed25519 signing seed from a secret manager/KMS bootstrap
-- tenant-specific Gmail credentials where Gmail verification is required
-- webhook source secrets isolated from execution agents
-- TLS termination and network policy at the deployment edge
-- durable database backup and retention policy
+- The executor's claim is never evidence.
+- Registered runs use server-established timing boundaries.
+- Mutable outcomes can require pre/post transition proof.
+- Provider adapters are constrained; there is no generic arbitrary-URL verifier.
+- Customer evidence is minimized before being written into receipts.
+- Receipts are hashed and signed with Ed25519.
+- Each receipt carries the public key needed to verify it even after signing-key rotation.
+- Workspace records are tenant-scoped and contract IDs are immutable.
 
-See [`docs/SECURITY.md`](docs/SECURITY.md).
+See [docs/SECURITY.md](docs/SECURITY.md) for the complete trust model and known pilot limitations.
 
-## Customer integrations
+## What DoneProof does not claim
 
-See:
+DoneProof proves that configured postconditions matched independently observed evidence under the configured trust model. It does not prove causality, human intent, authorization, or that an external provider itself is truthful.
 
-- [`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md)
-- [`docs/PILOT_GUIDE.md`](docs/PILOT_GUIDE.md)
-- [`docs/RECEIPTS.md`](docs/RECEIPTS.md)
+That boundary is deliberate. DoneProof is the **outcome assurance layer** between autonomous execution and business acceptance.
 
-Example contracts are under [`examples/`](examples/).
+## Release status
 
-## Test
+`0.9.1` is intended for controlled design-partner and paid-pilot evaluation. The verification model, signed receipts, tenant isolation and core provider paths are implemented. The remaining work toward managed enterprise GA is primarily deployment infrastructure: managed OAuth, PostgreSQL/HA, KMS/HSM signing, SSO/RBAC, billing and additional native connectors.
+
+## Validate locally
 
 ```bash
 pytest -q
 python -m compileall doneproof
 python benchmarks/benchmark_core.py
 ```
-
-The test suite covers success, partial completion, uncertainty, tenant isolation, signature tampering, idempotency, transient provider failures, GitHub resource ambiguity, Gmail draft-vs-sent behavior, webhook authentication/replay protection, temporal-boundary enforcement and upgrade-safe persistence.
-
-## What DoneProof proves
-
-DoneProof proves that configured postconditions match independently observed evidence under the configured trust model. It does **not** prove that an ambiguous human instruction was interpreted correctly, that an external provider is truthful, or that an authorized operator intended the action. Those belong to intent governance, authorization and provider trust respectively.
-
-That boundary is deliberate: DoneProof is the **outcome assurance** layer between agent execution and business acceptance.

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import logging
 import time
 from typing import Any
 
@@ -19,6 +22,9 @@ from .security import sanitize
 from .signing import ReceiptSigner
 
 
+logger = logging.getLogger("doneproof.verification")
+
+
 class VerificationEngine:
     def __init__(
         self,
@@ -35,6 +41,8 @@ class VerificationEngine:
         adapter = self.adapters.get(pc.provider)
         selector = dict(pc.selector)
         if pc.provider in {"github", "gmail", "webhook"} and self._is_discovery(pc.provider, selector):
+            # The contract's trusted run boundary always wins. Never accept a
+            # model/caller supplied earlier timestamp for discovery.
             selector["created_after"] = contract.task_started_at.isoformat()
         safe_selector = sanitize(selector)
         context = ObservationContext(
@@ -84,8 +92,21 @@ class VerificationEngine:
                 latency_ms=round(latency, 2),
             )
         except asyncio.TimeoutError:
+            logger.warning(
+                "verification_timeout provider=%s contract_id=%s condition_id=%s",
+                pc.provider,
+                contract.id,
+                pc.id,
+            )
             return self._result_unknown(pc, safe_selector, "Verification timed out before authoritative state was established.", started)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "verification_provider_error provider=%s contract_id=%s condition_id=%s error_type=%s",
+                pc.provider,
+                contract.id,
+                pc.id,
+                type(exc).__name__,
+            )
             return self._result_unknown(pc, safe_selector, "Provider verification was unavailable or returned an invalid response.", started)
 
     def _result_unknown(self, pc, selector: dict[str, Any], reason: str, started: float) -> ConditionResult:
@@ -151,9 +172,16 @@ class VerificationEngine:
             elif result.status == ConditionStatus.PASS and baseline.status == ConditionStatus.FAIL:
                 result.reason = "Transition verified: pre-execution state did not satisfy the condition and post-execution state does."
                 result.evidence.note = (result.evidence.note + " " if result.evidence.note else "") + result.reason
+        contract_payload = json.dumps(
+            contract.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode()
         receipt = VerificationReceipt(
             assurance_level=assurance_level,
             contract_id=contract.id,
+            contract_hash=hashlib.sha256(contract_payload).hexdigest(),
             task=contract.task,
             verdict=self._verdict(results),
             summary=self._summary(results),

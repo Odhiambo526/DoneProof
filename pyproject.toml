@@ -1,7 +1,12 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "doneproof"
-version = "0.8.0"
-description = "Outcome assurance infrastructure for AI agents"
+version = "0.9.1"
+description = "Independent outcome assurance infrastructure for AI agents"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115",

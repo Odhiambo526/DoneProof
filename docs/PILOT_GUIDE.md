@@ -1,54 +1,75 @@
 # Industry pilot guide
 
-DoneProof pilots should start with a workflow where false completion has a visible operational cost.
+A DoneProof pilot should test one question:
 
-Strong pilot candidates include:
+> **How often does an agent-reported success differ from independently verified business state?**
 
-- customer-support refunds or account changes
-- recruiting/application workflows
-- finance operations and invoice delivery
-- CRM record creation or update
+## Choose the right workflow
+
+Start with a workflow where false completion creates measurable cost and where authoritative evidence already exists.
+
+Good examples:
+
+- support refunds or account changes
+- outbound invoice/report delivery
+- CRM or ticket updates
+- recruiting/application submissions
 - GitHub engineering workflows
-- internal ticketing and approval flows
-- browser/RPA automations that currently rely on screenshots or success banners
+- approval workflows
+- browser/RPA actions currently accepted from UI success messages
+
+Avoid starting with subjective tasks such as “write a good reply.” DoneProof is strongest when success can be expressed as external state.
 
 ## Recommended experiment
 
-Select 100–1,000 real or replayed agent tasks and classify each outcome independently using existing business records. Run the same tasks through DoneProof and compare:
+Use 100–1,000 live or replayed tasks.
 
-- executor-reported success rate
-- DoneProof `VERIFIED` rate
-- false-positive completion rate
-- ambiguous/`UNKNOWN` rate
-- automatic recovery opportunity
+For every task record:
+
+- executor-reported outcome
+- DoneProof verdict
+- failed/unknown postcondition
 - verification latency
-- cost per verified outcome
+- whether the task required human review or repair
 
-The most important metric is not model accuracy. It is **false acceptance prevented**: cases where an executor claimed success but required external state did not satisfy the completion contract.
+Primary metrics:
 
-## Pilot acceptance criteria
+| Metric | Why it matters |
+|---|---|
+| False acceptance prevented | Claimed-success tasks that were not actually complete. |
+| Verified rate | How many tasks met every required condition. |
+| `UNKNOWN` rate | Where evidence quality or connectivity is insufficient. |
+| Repairable failure rate | Failures an orchestrator can fix automatically. |
+| Verification latency | Operational overhead introduced by assurance. |
+| Cost per verified outcome | Commercial viability at production volume. |
 
-A useful pilot should demonstrate:
+## Pilot stages
 
-1. at least one workflow with independent external evidence
-2. registered-run timestamps established before execution
-3. no execution-agent access to evidence credentials where feasible
-4. deterministic required postconditions
-5. signed receipt export for audit or incident review
-6. a documented handling path for `PARTIAL`, `FAILED`, and `UNKNOWN`
+### 1. Observe only
 
-## Suggested rollout
+DoneProof verifies after execution but does not influence workflow decisions.
 
-### Observe only
+### 2. Gate acceptance
 
-DoneProof verifies outcomes but does not affect execution.
+Only `VERIFIED` outcomes proceed automatically. Other verdicts go to repair or review.
 
-### Gate acceptance
+### 3. Repair and reverify
 
-Downstream systems accept `VERIFIED` tasks automatically and route other verdicts for repair or human review.
+The orchestrator uses failed postconditions to attempt targeted remediation, then asks DoneProof to verify again.
 
-### Repair loop
+DoneProof should remain independent from the repair agent.
 
-An orchestrator receives failed postconditions and attempts targeted remediation, then asks DoneProof to verify again.
+## Minimum pilot controls
 
-DoneProof itself should remain independent of the repair agent.
+1. Use registered runs for live tasks.
+2. Keep evidence credentials separate from executor credentials where practical.
+3. Use deterministic required postconditions.
+4. Use `require_change=true` for important updates to pre-existing resources.
+5. Export signed evidence bundles for incident review.
+6. Define operational handling for `PARTIAL`, `FAILED` and `UNKNOWN` before gating production actions.
+
+## Pilot exit decision
+
+A pilot is commercially interesting when DoneProof prevents enough false acceptance, reduces manual checking, or improves auditability to justify its verification overhead.
+
+Do not optimize the pilot around model benchmark scores. Optimize it around business outcomes that would otherwise have been accepted incorrectly.

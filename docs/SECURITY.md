@@ -1,49 +1,51 @@
-# Security model
+# Security and assurance model
 
-DoneProof is an assurance system. Its security objective is to prevent an execution agent's own success claim from being accepted as evidence of completion.
+DoneProof's primary security objective is simple:
+
+> **An execution agent's own success claim must never be sufficient evidence of completion.**
 
 ## Trust boundaries
 
-A high-assurance run has four distinct actors:
+A high-assurance run separates four roles:
 
-1. **Requester / orchestrator** defines the desired outcome.
-2. **DoneProof** registers the completion contract and trusted start time.
-3. **Executor** performs the external action.
-4. **Evidence provider** exposes the resulting state independently of the executor's textual claim.
+1. **Requester/orchestrator** — defines the intended business outcome.
+2. **DoneProof** — registers the contract, timing boundary and optional baseline.
+3. **Executor** — performs the action.
+4. **Evidence provider** — exposes authoritative resulting state independently of the executor's textual claim.
 
 The strongest deployment keeps evidence credentials and webhook signing secrets outside the executor's tool permissions.
 
-## Temporal integrity
+## Temporal and transition integrity
 
-Use `POST /v1/runs` before execution. DoneProof overwrites caller-supplied timestamps with its own registration time. Discovery adapters then enforce that boundary.
+Use `POST /v1/runs` before execution. DoneProof assigns the run ID and server timestamp.
 
-`POST /v1/verify` remains available for imported or retrospective contracts but returns receipts with `assurance_level="submitted"`. Its caller-supplied temporal boundary is inherently weaker.
+For new-resource discovery, provider searches are bounded by that timestamp.
 
-For mutable existing resources, `require_change=true` enables transition proof. DoneProof captures the predicate result before execution and signs both baseline and final minimal evidence into the receipt. If the desired state already existed before execution, the transition condition fails rather than crediting the agent.
+For updates to an existing resource, `require_change=true` captures the pre-execution predicate status. A desired state that was already true before execution does not count as a verified transition.
 
 ## Safe uncertainty
 
-DoneProof returns `UNKNOWN` rather than success when:
+DoneProof returns `UNKNOWN`, not success, when authoritative state cannot be established safely. Typical causes include:
 
-- a provider is inaccessible
-- discovery matches multiple candidate resources
-- GitHub's privacy-preserving 404 cannot distinguish missing from inaccessible state
-- Gmail is not connected
-- a provider response is malformed
-- a verification request times out
-- the contract lacks a usable adapter
+- provider access failure
+- ambiguous resource discovery
+- privacy-preserving provider responses that cannot distinguish missing from inaccessible state
+- missing credentials
+- malformed provider responses
+- timeout
+- unsupported/unresolved evidence paths
 
 ## Provider constraints
 
 ### GitHub
 
-Repository selectors are validated as `owner/repo`. Requests are restricted to `api.github.com`, redirects are disabled, and discovery is bounded by the registered task time.
+Repository selectors are validated as `owner/repo`. Requests are constrained to `api.github.com`, redirects are disabled, and discovery is bounded by the run start time.
 
 ### Gmail
 
-The adapter only accesses the Gmail API. Access tokens are configuration secrets and are never stored in contracts or receipts. Evidence records expose normalized metadata, not message bodies.
+The adapter accesses the Gmail API only. Access tokens live in deployment configuration, not contracts or receipts. Normalized evidence excludes message bodies.
 
-### Webhooks
+### Trusted webhooks
 
 Webhook evidence uses HMAC-SHA256 over:
 
@@ -51,43 +53,45 @@ Webhook evidence uses HMAC-SHA256 over:
 timestamp.event_type.object_id.raw_json_body
 ```
 
-The timestamp must be inside the configured replay window. Identical events are deduplicated by deterministic event ID. For strong independence, webhook secrets must not be available to the execution agent.
+Events outside the replay window are rejected and accepted events receive deterministic event IDs. For strong independence, the webhook secret must not be accessible to the executor.
 
-## Receipts
+## Receipt integrity
 
-Receipts use Ed25519 signatures. The receipt hash is SHA-256 over the canonical signed payload. The public key ID is the first 16 hex characters of SHA-256 over the raw public key.
+Receipts are Ed25519-signed and include both an exact completion-contract hash and the public key used for signing.
 
-For production, configure a stable 32-byte signing seed through `DONEPROOF_SIGNING_SEED_B64`. Protect the seed using a secret manager. A KMS/HSM-backed signing provider is the recommended next control for regulated production environments.
+Historical receipts verify against their embedded public key after key rotation. Production deployments should still manage trust and rotation using a secret manager and, for regulated environments, KMS/HSM-backed signing.
 
-## Tenant isolation
+## Tenant isolation and immutability
 
-API keys map to tenant IDs. Contracts, receipts, idempotency keys and webhook evidence are scoped by tenant in persistence queries. Customer-facing APIs never query records without a tenant predicate when authentication is enabled.
+API keys map to workspace tenant IDs. Contracts, receipts, baselines, idempotency records, audit events and evidence lookup are tenant-scoped.
+
+A completion-contract ID cannot be silently reused for different content. This prevents a receipt reference from becoming ambiguous later.
 
 ## Secret handling
 
-Keys with names matching token, secret, password, authorization, cookie, API key or credential patterns are redacted from evidence selectors before receipts are generated.
+Known credential-like selector keys are redacted before evidence is placed in receipts. Credentials should never be placed inside completion contracts in the first place; provider credentials belong in deployment configuration or a dedicated secret manager.
 
-Do not put credentials into completion-contract selectors. Provider credentials belong in deployment configuration or a dedicated secret manager.
+## Browser console
 
-## Production deployment
+The pilot console accepts a workspace API key for convenience but keeps it in browser session storage only. For a managed enterprise console, replace API-key entry with organization login, SSO and RBAC.
 
-The `/ready` endpoint reports unhealthy in production mode when API authentication or a stable signing key is missing.
+## Production perimeter controls
 
 Recommended controls outside the application process:
 
-- TLS and WAF/API gateway
-- secret manager/KMS
-- managed PostgreSQL or equivalent durable database for larger deployments
+- TLS and API gateway/WAF
+- service identity and secret manager
 - network egress policy
 - centralized logs and metrics
-- backup, retention and deletion policies
-- per-tenant rate limits
-- SSO/RBAC for the assurance console
+- durable managed database and backups
+- retention/deletion policy
+- distributed rate limiting
+- SSO/RBAC for human administration
 
-## Known pilot limitations
+## Current pilot limitations
 
-The pilot persistence layer is SQLite. It is appropriate for evaluation, single-instance pilots and controlled workloads, but not the final storage architecture for horizontally scaled enterprise deployments.
-
-Gmail authentication is currently configured through access tokens supplied to the deployment. A production multi-tenant OAuth connection manager is not included in this release.
-
-The included assurance console is operationally useful but is not yet a full enterprise administration plane with SSO, RBAC, billing, policy authoring and key rotation workflows.
+- SQLite is appropriate for a controlled single-instance pilot, not horizontally scaled enterprise deployment.
+- Gmail uses deployment-supplied access tokens; managed multi-tenant OAuth is not included.
+- Signing is process-local Ed25519 from a configured seed; KMS/HSM integration is not included.
+- The console is an operational pilot surface rather than a full administration plane.
+- DoneProof establishes observed state/transition, not causal attribution to a specific actor unless the underlying evidence itself contains trusted actor identity.

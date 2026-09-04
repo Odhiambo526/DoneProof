@@ -1,8 +1,10 @@
 # Integration guide
 
+For live workflows, use the registered-run lifecycle. It gives DoneProof a trusted timing boundary before the executor acts.
+
 ## Authentication
 
-Configure workspace API keys as a JSON mapping:
+Map API keys to workspace IDs:
 
 ```bash
 DONEPROOF_API_KEYS_JSON='{"dp_live_acme":"acme","dp_live_beta":"beta"}'
@@ -14,31 +16,38 @@ Clients send:
 X-DoneProof-Key: dp_live_acme
 ```
 
-When no keys are configured, DoneProof runs in development/open mode. Production readiness fails if authentication is missing.
+If no keys are configured, DoneProof runs in development/open mode. Production mode refuses to start without workspace authentication.
 
-## High-assurance run lifecycle
+## 1. Register a run
 
-### Register
+```text
+POST /v1/runs
+```
 
-`POST /v1/runs`
+DoneProof:
 
-The request contains a completion contract. DoneProof stores it and replaces its timing boundary with server time.
+1. assigns a new contract ID
+2. replaces caller timing with server time
+3. stores the immutable contract
+4. captures pre-execution baselines for `require_change=true` conditions
 
-### Execute
+Wait for this response before starting the executor when using transition assurance.
 
-Your existing agent performs the action. DoneProof is executor-agnostic.
+## 2. Execute normally
 
-For a mutation of an existing resource, set `require_change: true` on the relevant postcondition before registering the run. DoneProof captures whether the predicate was already satisfied and only credits the executor when the final state proves an unsatisfied → satisfied transition.
+No DoneProof SDK is required inside the agent itself. The executor can be any model, agent framework, browser automation, RPA system or internal service.
 
-### Verify
+## 3. Verify
 
-`POST /v1/runs/{contract_id}/verify`
+```text
+POST /v1/runs/{contract_id}/verify
+```
 
-Use an `Idempotency-Key` for retried calls. Reusing the same key for a different request returns `409`.
+Use an `Idempotency-Key` when retries are possible.
 
 ## GitHub
 
-A known resource can use its number:
+Known issue:
 
 ```json
 {
@@ -48,7 +57,7 @@ A known resource can use its number:
 }
 ```
 
-For newly created resources, omit the final number and supply safe discovery constraints:
+New resource with unknown number:
 
 ```json
 {
@@ -63,23 +72,23 @@ For newly created resources, omit the final number and supply safe discovery con
 }
 ```
 
-DoneProof only searches resources created after the registered run began. Multiple matches return `UNKNOWN`.
+DoneProof only searches resources created after the registered run began. Multiple candidates return `UNKNOWN`.
 
 ## Gmail
 
-Configure either a default access token or a tenant mapping:
+Configure a default mailbox token:
 
 ```bash
 GMAIL_ACCESS_TOKEN=...
 ```
 
-or:
+or tenant-specific tokens:
 
 ```bash
 DONEPROOF_GMAIL_TOKENS_JSON='{"acme":"ya29..."}'
 ```
 
-A send outcome should explicitly verify `location == sent`:
+A send task should verify `location == sent`:
 
 ```json
 {
@@ -93,16 +102,16 @@ A send outcome should explicitly verify `location == sent`:
 }
 ```
 
-Useful normalized fields:
+Normalized fields include:
 
 ```text
 message_id, thread_id, location, subject, from, to, cc, bcc,
 internal_date, attachment_names
 ```
 
-## Trusted webhooks
+## Trusted webhook evidence
 
-Webhooks are the generic enterprise integration path.
+Use webhooks when the authoritative state lives in a customer system without a native DoneProof adapter.
 
 Configure a source:
 
@@ -118,7 +127,7 @@ Send evidence to:
 POST /v1/webhooks/erp
 ```
 
-Required headers:
+Headers:
 
 ```text
 X-DoneProof-Timestamp: <unix-seconds>
@@ -133,7 +142,7 @@ Signature input:
 {timestamp}.{event_type}.{object_id}.{raw_json_body}
 ```
 
-Example contract:
+Contract condition:
 
 ```json
 {
@@ -151,8 +160,39 @@ Example contract:
 }
 ```
 
-## Natural-language compiler
+The webhook credential should belong to the authoritative system and should not be available to the executor.
 
-`POST /v1/contracts/compile` is optional. If `OPENAI_API_KEY` is not configured, explicit contracts remain fully functional.
+## Optional natural-language compiler
 
-The compiler's role is only to translate intent into postconditions. Provider observation and deterministic predicate evaluation remain separate.
+```text
+POST /v1/contracts/compile
+```
+
+The compiler translates human intent into explicit postconditions. It does not decide the verification verdict. If no model credential is configured, explicit contracts remain fully functional.
+
+## Submitted verification
+
+```text
+POST /v1/verify
+```
+
+Use this for retrospective imports and experiments. It returns `assurance_level="submitted"` because DoneProof did not establish the timing boundary before execution.
+
+## Batch verification
+
+```text
+POST /v1/verify/batch
+```
+
+Useful for replay studies and pilot datasets. It is not a substitute for registered runs in live high-assurance workflows.
+
+## Receipts and audit
+
+```text
+GET /v1/receipts
+GET /v1/receipts/{receipt_id}
+GET /v1/receipts/{receipt_id}/integrity
+GET /v1/receipts/{receipt_id}/bundle
+GET /v1/audit
+GET /v1/overview
+```

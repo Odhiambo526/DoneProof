@@ -42,7 +42,7 @@ class GitHubAdapter(ProviderAdapter):
         h = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "doneproof/0.8",
+            "User-Agent": "doneproof/0.9.1",
         }
         if self.token:
             h["Authorization"] = f"Bearer {self.token}"
@@ -115,6 +115,8 @@ class GitHubAdapter(ProviderAdapter):
                     "per_page": 100,
                     "page": page,
                 }
+                # Issues support a server-side `since` bound. Pull requests do
+                # not, so both paths are still bounded again client-side.
                 if kind == "issue":
                     params["since"] = created_after.isoformat().replace("+00:00", "Z")
 
@@ -133,6 +135,7 @@ class GitHubAdapter(ProviderAdapter):
 
                 reached_time_bound = False
                 for item in items:
+                    # GitHub's issues endpoint includes pull requests.
                     if kind == "issue" and item.get("pull_request") is not None:
                         continue
                     created_at = _parse_time(item.get("created_at"))

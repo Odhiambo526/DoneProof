@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -11,9 +13,9 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, sta
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from .adapters.base import ProviderAdapter
 from .adapters.github import GitHubAdapter
 from .adapters.gmail import GmailAdapter
-from .adapters.mock import MockAdapter
 from .adapters.webhook import WebhookEvidenceAdapter
 from .compiler import AstraCompiler
 from .config import Settings, get_settings
@@ -29,16 +31,27 @@ from .domain import (
     WebhookEventReceipt,
 )
 from .engine import VerificationEngine
+from .limits import SlidingWindowLimiter
 from .security import TenantContext, require_tenant
 from .signing import ReceiptSigner
 from .store import Store
 from .web import CONSOLE_HTML, LANDING_HTML, certificate_html
 
-VERSION = "0.8.0"
+VERSION = "0.9.1"
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, adapter_overrides: dict[str, ProviderAdapter] | None = None) -> FastAPI:
     settings = settings or get_settings()
+    if settings.verification_timeout_seconds <= 0:
+        raise RuntimeError("DONEPROOF_VERIFICATION_TIMEOUT_SECONDS must be greater than zero")
+    if settings.max_body_bytes < 1024:
+        raise RuntimeError("DONEPROOF_MAX_BODY_BYTES must be at least 1024")
+    if settings.max_batch_size < 1:
+        raise RuntimeError("DONEPROOF_MAX_BATCH_SIZE must be at least 1")
+    if settings.is_production and not settings.auth_enabled:
+        raise RuntimeError("Production mode requires DONEPROOF_API_KEYS_JSON")
+    if settings.is_production and not settings.has_stable_signing_key:
+        raise RuntimeError("Production mode requires a stable DoneProof signing key")
     app = FastAPI(
         title="DoneProof API",
         version=VERSION,
@@ -49,13 +62,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.store = Store(settings.db_path)
     app.state.signer = ReceiptSigner(settings)
     app.state.compiler = AstraCompiler(settings)
+    app.state.limiter = SlidingWindowLimiter(settings.requests_per_minute)
     adapters = {
         "github": GitHubAdapter(token=settings.github_token),
         "gmail": GmailAdapter(settings),
         "webhook": WebhookEvidenceAdapter(app.state.store),
     }
-    if settings.enable_demo:
-        adapters["mock"] = MockAdapter()
+    if adapter_overrides:
+        adapters.update(adapter_overrides)
     app.state.engine = VerificationEngine(adapters, app.state.signer, settings.verification_timeout_seconds)
 
     if settings.cors_origins:
@@ -69,7 +83,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def response_hardening(request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID") or f"req_{uuid.uuid4().hex[:16]}"
+        supplied_request_id = request.headers.get("X-Request-ID") or ""
+        request_id = (
+            supplied_request_id
+            if re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", supplied_request_id)
+            else f"req_{uuid.uuid4().hex[:16]}"
+        )
+        started = time.perf_counter()
+        if request.url.path.startswith("/v1/") and not request.url.path.startswith("/v1/webhooks/") and request.url.path != "/v1/signing-key":
+            supplied = request.headers.get("X-DoneProof-Key") or ""
+            if settings.auth_enabled:
+                tenant_id = next(
+                    (tenant for candidate, tenant in settings.api_keys.items() if hmac.compare_digest(candidate, supplied)),
+                    None,
+                )
+                limiter_key = f"tenant:{tenant_id}" if tenant_id else "unauthorized"
+            else:
+                limiter_key = "development"
+            allowed, retry_after = app.state.limiter.check(limiter_key)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Workspace request rate exceeded"},
+                    headers={"X-Request-ID": request_id, "Retry-After": str(retry_after)},
+                )
         content_length = request.headers.get("content-length")
         if content_length:
             try:
@@ -80,9 +117,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/v1") else "public, max-age=300"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
+        response.headers["X-DoneProof-Duration-Ms"] = f"{(time.perf_counter() - started) * 1000:.2f}"
+        if settings.is_production:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -100,16 +142,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/ready", tags=["Operations"])
     def ready(request: Request):
         db_ok = request.app.state.store.ping()
-        warnings: list[str] = []
-        if settings.is_production and not settings.auth_enabled:
-            warnings.append("API authentication is not configured")
-        if settings.is_production and not settings.has_stable_signing_key:
-            warnings.append("A stable production signing key is not configured")
         body = {
-            "ready": db_ok and not warnings,
+            "ready": db_ok,
             "database": "ready" if db_ok else "unavailable",
             "environment": settings.env,
-            "warnings": warnings,
+            "warnings": [],
         }
         if not body["ready"]:
             return JSONResponse(status_code=503, content=body)
@@ -144,10 +181,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Contract compiler could not produce a valid completion contract.") from exc
         app.state.store.save_contract(ctx.tenant_id, contract)
+        app.state.store.audit(ctx.tenant_id, "contract.compiled", "contract", contract.id, {"conditions": len(contract.postconditions)})
         return contract
+
 
     @app.post("/v1/runs", response_model=CompletionContract, tags=["Runs"])
     async def register_run(req: RegisterRunRequest, ctx: TenantContext = Depends(require_tenant)):
+        # High-assurance flow: the verifier, not the executor, establishes the
+        # temporal boundary before the external action occurs.
         now = datetime.now(timezone.utc)
         contract = req.contract.model_copy(deep=True)
         contract.id = f"cc_{uuid.uuid4().hex[:16]}"
@@ -157,6 +198,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         baselines = await app.state.engine.snapshot(contract, ctx.tenant_id)
         for baseline in baselines:
             app.state.store.save_baseline(ctx.tenant_id, contract.id, baseline)
+        app.state.store.audit(ctx.tenant_id, "run.registered", "contract", contract.id, {"conditions": len(contract.postconditions), "baselines": len(baselines)})
         return contract
 
     @app.get("/v1/runs/{contract_id}", response_model=CompletionContract, tags=["Runs"])
@@ -189,6 +231,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         baselines = app.state.store.get_baselines(ctx.tenant_id, contract_id)
         receipt = await app.state.engine.verify(contract, ctx.tenant_id, assurance_level="registered", baselines=baselines)
         app.state.store.save_receipt(ctx.tenant_id, receipt)
+        app.state.store.audit(ctx.tenant_id, "run.verified", "receipt", receipt.receipt_id, {"contract_id": contract.id, "verdict": receipt.verdict.value, "assurance": receipt.assurance_level})
         if idempotency_key:
             app.state.store.save_idempotency(ctx.tenant_id, idempotency_key, request_hash, receipt.receipt_id)
         return receipt
@@ -216,12 +259,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 cached = app.state.store.get_receipt(ctx.tenant_id, previous["receipt_id"])
                 if cached:
                     return cached
-        app.state.store.save_contract(ctx.tenant_id, req.contract)
+        try:
+            app.state.store.save_contract(ctx.tenant_id, req.contract)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         receipt = await app.state.engine.verify(req.contract, ctx.tenant_id)
         app.state.store.save_receipt(ctx.tenant_id, receipt)
+        app.state.store.audit(ctx.tenant_id, "verification.completed", "receipt", receipt.receipt_id, {"contract_id": req.contract.id, "verdict": receipt.verdict.value, "assurance": receipt.assurance_level})
         if idempotency_key:
             app.state.store.save_idempotency(ctx.tenant_id, idempotency_key, request_hash, receipt.receipt_id)
         return receipt
+
+    @app.post("/v1/verify/batch", response_model=list[VerificationReceipt], tags=["Verification"])
+    async def verify_batch(requests: list[VerifyRequest], ctx: TenantContext = Depends(require_tenant)):
+        if not requests:
+            raise HTTPException(status_code=400, detail="Batch must contain at least one verification request")
+        if len(requests) > settings.max_batch_size:
+            raise HTTPException(status_code=413, detail=f"Batch exceeds configured maximum of {settings.max_batch_size}")
+        try:
+            for item in requests:
+                app.state.store.save_contract(ctx.tenant_id, item.contract)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        receipts = list(await asyncio.gather(*(app.state.engine.verify(item.contract, ctx.tenant_id) for item in requests)))
+        for receipt in receipts:
+            app.state.store.save_receipt(ctx.tenant_id, receipt)
+            app.state.store.audit(ctx.tenant_id, "verification.completed", "receipt", receipt.receipt_id, {"contract_id": receipt.contract_id, "verdict": receipt.verdict.value, "assurance": receipt.assurance_level, "batch": True})
+        return receipts
 
     @app.get("/v1/receipts", response_model=list[VerificationReceipt], tags=["Receipts"])
     async def receipts(limit: int = Query(default=50, ge=1, le=200), ctx: TenantContext = Depends(require_tenant)):
@@ -239,11 +303,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         item = app.state.store.get_receipt(ctx.tenant_id, receipt_id)
         if not item:
             raise HTTPException(status_code=404, detail="Receipt not found")
-        valid = (
-            item.key_id == app.state.signer.key_id
-            and item.public_key == app.state.signer.public_key_b64
-            and ReceiptSigner.verify(item)
-        )
+        # Receipts are self-verifying: historical receipts remain valid after
+        # signer rotation because each receipt carries its original public key.
+        valid = ReceiptSigner.verify(item)
         return ReceiptIntegrity(receipt_id=item.receipt_id, valid=valid, key_id=item.key_id, receipt_hash=item.receipt_hash)
 
     @app.get("/v1/receipts/{receipt_id}/certificate", response_class=HTMLResponse, tags=["Receipts"])
@@ -252,6 +314,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not item:
             raise HTTPException(status_code=404, detail="Receipt not found")
         return certificate_html(item)
+
+    @app.get("/v1/receipts/{receipt_id}/bundle", tags=["Receipts"])
+    async def receipt_bundle(receipt_id: str, ctx: TenantContext = Depends(require_tenant)):
+        item = app.state.store.get_receipt(ctx.tenant_id, receipt_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Receipt not found")
+        valid = ReceiptSigner.verify(item)
+        return {
+            "schema": "doneproof-evidence-bundle/v1",
+            "receipt": item.model_dump(mode="json"),
+            "integrity": {"valid": valid, "receipt_hash": item.receipt_hash, "key_id": item.key_id},
+            "signing_key": {"algorithm": "Ed25519", "key_id": item.key_id, "public_key": item.public_key},
+        }
+
+    @app.get("/v1/audit", tags=["Workspace"])
+    async def audit(limit: int = Query(default=100, ge=1, le=500), ctx: TenantContext = Depends(require_tenant)):
+        return app.state.store.list_audit(ctx.tenant_id, limit)
 
     @app.get("/v1/overview", tags=["Workspace"])
     async def overview(ctx: TenantContext = Depends(require_tenant)):
@@ -300,22 +379,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload,
             event_id,
         )
+        if inserted:
+            app.state.store.audit(source_cfg.tenant_id, "evidence.accepted", "webhook_event", event_id, {"source": source, "event_type": x_doneproof_event, "object_id": x_doneproof_object_id})
         return WebhookEventReceipt(event_id=event_id, accepted=True, duplicate=not inserted, source=source, occurred_at=occurred_at)
 
-    if settings.enable_demo:
-        @app.post("/v1/demo/verify", response_model=VerificationReceipt, tags=["Demo"])
-        async def verify_demo(ctx: TenantContext = Depends(require_tenant)):
-            contract = CompletionContract.model_validate({
-                "task": "Create GitHub issue 'Auth bypass' and assign alice",
-                "postconditions": [
-                    {"id":"p1","description":"Issue exists with requested title","provider":"mock","selector":{"state":{"title":"Auth bypass","assignees":[]}},"predicate":{"op":"eq","path":"title","expected":"Auth bypass"},"required":True},
-                    {"id":"p2","description":"Alice is assigned","provider":"mock","selector":{"state":{"title":"Auth bypass","assignees":[]}},"predicate":{"op":"contains","path":"assignees","expected":"alice"},"required":True},
-                ],
-            })
-            app.state.store.save_contract(ctx.tenant_id, contract)
-            out = await app.state.engine.verify(contract, ctx.tenant_id, assurance_level="synthetic")
-            app.state.store.save_receipt(ctx.tenant_id, out)
-            return out
 
     return app
 

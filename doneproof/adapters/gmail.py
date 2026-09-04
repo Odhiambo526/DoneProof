@@ -24,7 +24,7 @@ class GmailAdapter(ProviderAdapter):
             timeout=15.0,
             follow_redirects=False,
             transport=self.transport,
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "doneproof/0.8"},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "doneproof/0.9.1"},
         )
 
     async def observe(self, selector: dict[str, Any], context: ObservationContext) -> ProviderObservation:
