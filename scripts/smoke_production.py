@@ -72,6 +72,10 @@ def main() -> int:
     status, landing, _ = fetch(base, "/")
     assert status == 200 and b"Agents act" in landing and b"DoneProof" in landing
 
+    status, demo, _ = fetch(base, "/demo")
+    assert status == 200, f"/demo returned HTTP {status}"
+    assert b"False-success demo" in demo and b"Start 90-second demo" in demo
+
     print(
         json.dumps(
             {

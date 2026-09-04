@@ -12,6 +12,7 @@ It works independently of the executor: OpenAI, Anthropic, Google, browser agent
 
 The current production pilot is available at **https://www.getdoneproof.com**.
 
+- 90-second false-success demo: https://www.getdoneproof.com/demo
 - Assurance console: https://www.getdoneproof.com/console
 - API reference: https://www.getdoneproof.com/docs
 - Readiness: https://www.getdoneproof.com/ready

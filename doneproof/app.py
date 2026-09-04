@@ -22,6 +22,7 @@ from .adapters.gmail import GmailAdapter
 from .adapters.webhook import WebhookEvidenceAdapter
 from .compiler import AstraCompiler
 from .config import Settings, get_settings
+from .demo import DEMO_HTML
 from .domain import (
     CapabilityResponse,
     CompileRequest,
@@ -166,6 +167,10 @@ def create_app(
     @app.get("/console", response_class=HTMLResponse, include_in_schema=False)
     def console():
         return CONSOLE_HTML
+
+    @app.get("/demo", response_class=HTMLResponse, include_in_schema=False)
+    def demo():
+        return DEMO_HTML
 
     @app.get("/health", tags=["Operations"])
     def health():
