@@ -1,0 +1,32 @@
+name: materialize DoneProof v0.9.1
+
+on:
+  push:
+    branches: ["doneproof-0.9.1-release"]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Materialize tested release into main
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .doneproof-release/part* | base64 --decode > /tmp/doneproof.zip
+          mkdir -p /tmp/doneproof-release
+          unzip -q /tmp/doneproof.zip -d /tmp/doneproof-release
+          git fetch origin main
+          git checkout main
+          git rm -r .
+          cp -a /tmp/doneproof-release/. .
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Release DoneProof v0.9.1 market-ready pilot"
+          git push origin main
