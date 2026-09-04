@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.3
+
+- Made the serverless entrypoint fail closed with a sanitized 503 diagnostic app instead of crashing during import when production configuration or storage initialization is invalid.
+- Added stable startup error classes for API-key, signing-key, database URL and storage failures so `/ready` is actionable without exposing secrets.
+- Kept `create_app()` strict for tests and production safety while making Vercel runtime failures observable.
+
 ## 0.9.2
 
 - Added first-class PostgreSQL persistence selected through `DATABASE_URL` / `POSTGRES_URL`.

@@ -40,3 +40,43 @@ def test_database_url_takes_precedence_over_vercel_tmp(monkeypatch):
     assert settings.storage_dsn.startswith("postgresql://")
     assert settings.durable_storage is True
     get_settings.cache_clear()
+
+
+def test_serverless_runtime_reports_missing_production_auth_as_503(monkeypatch):
+    from fastapi.testclient import TestClient
+    from doneproof.app import create_runtime_app
+
+    monkeypatch.setenv("DONEPROOF_ENV", "production")
+    monkeypatch.setenv("DONEPROOF_API_KEYS_JSON", "{}")
+    monkeypatch.delenv("DONEPROOF_SIGNING_SEED_B64", raising=False)
+    monkeypatch.delenv("DONEPROOF_RECEIPT_KEY", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_URL", raising=False)
+    get_settings.cache_clear()
+    try:
+        client = TestClient(create_runtime_app())
+        ready = client.get("/ready")
+        assert ready.status_code == 503
+        assert ready.json()["warnings"] == ["configuration.api_keys"]
+        assert client.get("/").status_code == 503
+    finally:
+        get_settings.cache_clear()
+
+
+def test_serverless_runtime_reports_missing_database_without_crashing(monkeypatch):
+    import base64
+    from fastapi.testclient import TestClient
+    from doneproof.app import create_runtime_app
+
+    monkeypatch.setenv("DONEPROOF_ENV", "production")
+    monkeypatch.setenv("DONEPROOF_API_KEYS_JSON", '{"dp_live_test":"default"}')
+    monkeypatch.setenv("DONEPROOF_SIGNING_SEED_B64", base64.b64encode(b"x" * 32).decode())
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_URL", raising=False)
+    get_settings.cache_clear()
+    try:
+        ready = TestClient(create_runtime_app()).get("/ready")
+        assert ready.status_code == 503
+        assert ready.json()["warnings"] == ["configuration.database_url"]
+    finally:
+        get_settings.cache_clear()

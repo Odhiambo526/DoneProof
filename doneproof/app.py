@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
+import os
 import re
 import time
 import uuid
@@ -37,7 +39,9 @@ from .signing import ReceiptSigner
 from .store import Store
 from .web import CONSOLE_HTML, LANDING_HTML, certificate_html
 
-VERSION = "0.9.2"
+VERSION = "0.9.3"
+
+logger = logging.getLogger("doneproof.startup")
 
 
 def create_app(settings: Settings | None = None, adapter_overrides: dict[str, ProviderAdapter] | None = None) -> FastAPI:
@@ -391,4 +395,94 @@ def create_app(settings: Settings | None = None, adapter_overrides: dict[str, Pr
     return app
 
 
-app = create_app()
+def _startup_error_code(exc: Exception) -> str:
+    message = str(exc)
+    if "DONEPROOF_API_KEYS_JSON" in message or "API_KEYS" in message:
+        return "configuration.api_keys"
+    if "signing key" in message.lower() or "DONEPROOF_SIGNING_SEED_B64" in message:
+        return "configuration.signing_key"
+    if "durable PostgreSQL" in message or "DATABASE_URL" in message:
+        return "configuration.database_url"
+    if exc.__class__.__module__.startswith("psycopg") or exc.__class__.__name__ in {"OperationalError", "DatabaseError"}:
+        return "storage.unavailable"
+    if isinstance(exc, RuntimeError):
+        return "configuration.invalid"
+    return "startup.unavailable"
+
+
+def _create_startup_failure_app(error_code: str) -> FastAPI:
+    """Return a fail-closed diagnostic app instead of crashing serverless import.
+
+    No customer API is enabled in this state. The only useful endpoints are
+    liveness/readiness diagnostics with a sanitized error class.
+    """
+    degraded = FastAPI(
+        title="DoneProof API",
+        version=VERSION,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    environment = os.getenv("DONEPROOF_ENV", "development")
+
+    @degraded.get("/health", include_in_schema=False)
+    def degraded_health():
+        return {"ok": False, "service": "doneproof", "version": VERSION, "startup": "degraded"}
+
+    @degraded.get("/ready", include_in_schema=False)
+    def degraded_ready():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ready": False,
+                "database": "unknown",
+                "storage_backend": "unknown",
+                "durable_storage": False,
+                "environment": environment,
+                "warnings": [error_code],
+            },
+        )
+
+    @degraded.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+    def degraded_root():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "service": "doneproof",
+                "status": "unavailable",
+                "error": error_code,
+                "check": "/ready",
+            },
+        )
+
+    @degraded.api_route(
+        "/{path:path}",
+        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        include_in_schema=False,
+    )
+    def degraded_catch_all(path: str):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "DoneProof is not ready", "error": error_code},
+        )
+
+    return degraded
+
+
+def create_runtime_app() -> FastAPI:
+    """Build the deployed ASGI app while keeping startup failures observable.
+
+    `create_app()` remains strict and raises on unsafe production settings. This
+    wrapper is only for the serverless module entrypoint: it converts startup
+    failures into a fail-closed 503 app so `/ready` can identify the failing
+    configuration class instead of Vercel reporting FUNCTION_INVOCATION_FAILED.
+    """
+    try:
+        return create_app()
+    except Exception as exc:  # pragma: no cover - exact provider errors vary
+        error_code = _startup_error_code(exc)
+        logger.error("DoneProof startup blocked: %s (%s)", error_code, exc.__class__.__name__)
+        return _create_startup_failure_app(error_code)
+
+
+app = create_runtime_app()
