@@ -48,8 +48,9 @@ jobs:
           set -euo pipefail
           cd source
           python -m pip install -e '.[dev]'
-          ruff check --fix doneproof tests scripts
+          ruff check --fix doneproof tests scripts || true
           ruff format doneproof tests scripts
+          ruff check --fix doneproof tests scripts
           ruff check doneproof tests scripts
           python -m compileall -q doneproof tests scripts
           pytest -q
