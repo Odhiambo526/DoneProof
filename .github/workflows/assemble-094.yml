@@ -58,24 +58,18 @@ jobs:
           git diff --cached --check
       - name: Build production image
         run: docker build -t doneproof:0.9.4 source
-      - name: Archive clean candidate
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          tar --exclude=.git --exclude='*.egg-info' --exclude='**/__pycache__' --exclude='.pytest_cache' -czf /tmp/doneproof-0.9.4-final.tar.gz .
-          sha256sum /tmp/doneproof-0.9.4-final.tar.gz
-      - uses: actions/upload-artifact@v4
-        with:
-          name: doneproof-0.9.4-final
-          path: /tmp/doneproof-0.9.4-final.tar.gz
-          retention-days: 1
-          if-no-files-found: error
       - name: Publish clean candidate
         shell: bash
         run: |
           set -euo pipefail
           cd source
+          # CI workflow updates are applied separately through the GitHub connector.
+          git restore --source=HEAD --staged --worktree .github/workflows/ci.yml
+          rm -rf doneproof.egg-info .ruff_cache .pytest_cache doneproof.db
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          grep -qxF '*.egg-info/' .gitignore || printf '\n*.egg-info/\n' >> .gitignore
+          git add -A
+          git diff --cached --check
           git config user.name 'OxzoroH'
           git config user.email '72065059+Odhiambo526@users.noreply.github.com'
           git commit -m 'Finalize DoneProof v0.9.4 production pilot'
