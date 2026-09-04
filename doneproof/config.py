@@ -27,11 +27,14 @@ def _json(name: str, default: Any) -> Any:
 
 
 def _base64_secret(name: str) -> str | None:
-    """Normalize transport whitespace while preserving strict Base64 semantics."""
+    """Normalize common secret-manager copy/paste wrappers, then validate strictly later."""
     raw = os.getenv(name)
     if raw is None:
         return None
-    value = "".join(raw.split())
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'", "`"}:
+        value = value[1:-1].strip()
+    value = "".join(value.split())
     return value or None
 
 
