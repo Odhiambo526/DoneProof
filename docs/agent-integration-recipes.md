@@ -47,7 +47,7 @@ See [CrewAI execution methods](https://docs.crewai.com/en/concepts/crews).
 ## Generic Node agent
 
 ```ts
-async function assure(dp, task, operationId, execute) {
+async function assure(dp: DoneProof, task: string, operationId: string, execute: () => Promise<unknown>) {
   const session = await dp.assurance.prepare({ task, idempotencyKey: operationId });
   if (session.state !== 'READY_FOR_EXECUTION') return session;
   await execute();

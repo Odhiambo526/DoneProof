@@ -22,6 +22,7 @@ test('Receipt downgrade and browser assurance fail closed', () => {
   assert.throws(() => parseModel('VerificationReceipt', { ...browser, schema_version: '1.0' }), CompatibilityError);
   assert.throws(() => parseModel('AssuranceSession', { ...ready, protocol_version: '2.0' }), CompatibilityError);
   assert.throws(() => parseModel('AssuranceSession', { ...ready, compiler: null }), CompatibilityError);
+  assert.throws(() => parseModel('AssuranceSession', { ...ready, trusted_task_started_at: 'not-a-date' }), CompatibilityError);
   assert.throws(() => parseModel('AssuranceSession', { ...ready, state: 'NEEDS_CLARIFICATION' }), CompatibilityError);
   assert.throws(() => parseModel('AssuranceSession', { ...ready, evidence: [{ condition: 'p1', provider: 'browser',
     evidence_class: 'provider_observation', assurance_level: 'provider_declared' }] }), CompatibilityError);

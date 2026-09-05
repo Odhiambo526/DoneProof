@@ -10,7 +10,7 @@ export type * from './models.js';
 
 export const VERSION = '0.9.4';
 const terminal = new Set(['COMPLETE', 'PARTIAL_FAILURE', 'EXPIRED', 'INTERNAL_ERROR']);
-const ajv = new Ajv2020({ strict: false, allErrors: false, validateFormats: false });
+const ajv = new Ajv2020({ strict: false, allErrors: false, validateFormats: true });
 // Formats are registered explicitly; schemas remain local and cannot load URLs.
 const formatPlugin = addFormats as unknown as (instance: Ajv2020) => void;
 formatPlugin(ajv);
