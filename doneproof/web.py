@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 
 from .domain import VerificationReceipt
+from .recovery_web import RECOVERY_PANEL
 
 LANDING_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -28,9 +29,17 @@ CONSOLE_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><me
 const key=document.getElementById('key');key.value=sessionStorage.getItem('doneproof_key')||'';key.addEventListener('change',()=>{sessionStorage.setItem('doneproof_key',key.value);load()});
 function headers(){return key.value?{'X-DoneProof-Key':key.value}:{}}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
-async function load(){try{const [s,r]=await Promise.all([fetch('/v1/overview',{headers:headers()}),fetch('/v1/receipts?limit=30',{headers:headers()})]);if(!s.ok||!r.ok)throw new Error(s.status===401?'Enter a valid workspace API key':'Assurance API unavailable');const stats=await s.json(),receipts=await r.json();for(const k of ['total','partial','failed','unknown'])document.getElementById(k).textContent=stats[k.toUpperCase()]??stats[k]??0;document.getElementById('verification_rate').textContent=(stats.verification_rate??0)+'%';document.getElementById('average_duration_ms').textContent=Math.round(stats.average_duration_ms??0)+' ms';const c=document.getElementById('content');if(!receipts.length){c.innerHTML='<div class="empty">No verification receipts yet.</div>';return}c.innerHTML='<table><thead><tr><th>Verdict</th><th>Business outcome</th><th>Evidence</th><th>Assurance</th><th>Receipt</th><th>Verified</th></tr></thead><tbody>'+receipts.map(x=>`<tr><td><span class="badge ${x.verdict}">${x.verdict}</span></td><td class="task">${esc(x.task)}</td><td><div>${x.summary.passed}/${x.summary.total} conditions passed</div><div class="providers">${esc(x.summary.providers.join(' · '))}</div></td><td>${esc(x.assurance_level)}</td><td class="rid">${esc(x.receipt_id)}</td><td>${new Date(x.verified_at).toLocaleString()}</td></tr>`).join('')+'</tbody></table>'}catch(e){document.getElementById('content').innerHTML='<div class="empty">'+esc(e.message)+'</div>'}}
+async function load(){try{const [s,r]=await Promise.all([fetch('/v1/overview',{headers:headers()}),fetch('/v1/receipts?limit=30',{headers:headers()})]);if(!s.ok||!r.ok)throw new Error(s.status===401?'Enter a valid workspace API key':'Assurance API unavailable');const stats=await s.json(),receipts=await r.json();for(const k of ['total','partial','failed','unknown'])document.getElementById(k).textContent=stats[k.toUpperCase()]??stats[k]??0;document.getElementById('verification_rate').textContent=(stats.verification_rate??0)+'%';document.getElementById('average_duration_ms').textContent=Math.round(stats.average_duration_ms??0)+' ms';const c=document.getElementById('content');if(!receipts.length){c.innerHTML='<div class="empty">No verification receipts yet.</div>';return}c.innerHTML='<table><thead><tr><th>Verdict</th><th>Business outcome</th><th>Evidence</th><th>Assurance</th><th>Receipt</th><th>Verified</th></tr></thead><tbody>'+receipts.map(x=>`<tr><td><span class="badge ${x.verdict}">${x.verdict}</span></td><td class="task">${esc(x.task)}</td><td><div>${x.summary.passed}/${x.summary.total} conditions passed</div><div class="providers">${esc(x.summary.providers.join(' · '))}</div></td><td>${esc(x.assurance_level)}</td><td class="rid">${esc(x.receipt_id)}<br><button type="button" data-receipt="${esc(x.receipt_id)}">History</button></td><td>${new Date(x.verified_at).toLocaleString()}</td></tr>`).join('')+'</tbody></table>'}catch(e){document.getElementById('content').innerHTML='<div class="empty">'+esc(e.message)+'</div>'}}
 load();
 </script></body></html>"""
+
+CONSOLE_HTML = CONSOLE_HTML.replace("</style>", """
+button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:7px 10px;cursor:pointer}
+button:hover{border-color:var(--blue)}button:disabled{opacity:.5;cursor:default}button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+#recovery-panel details{padding:8px 0}#recovery-panel summary{cursor:pointer}#recovery-panel p{overflow-wrap:anywhere}.sub a{color:var(--blue)}
+</style>""").replace("</main>", RECOVERY_PANEL + "</main>").replace(
+    "</body>", '<script src="/console/recovery.js" defer></script></body>')
+
 
 
 def certificate_html(receipt: VerificationReceipt) -> str:

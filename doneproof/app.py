@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, sta
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from . import __version__
 from .adapters.base import ProviderAdapter
@@ -42,6 +42,9 @@ from .job_api import register_job_routes
 from .job_callbacks import CallbackRegistry
 from .job_store import JobStore
 from .limits import SlidingWindowLimiter
+from .recovery_api import register_recovery_routes
+from .recovery_store import RecoveryStore
+from .recovery_web import RECOVERY_SCRIPT
 from .security import TenantContext, require_tenant
 from .selector_resolution import SelectorResolver
 from .signing import ReceiptSigner
@@ -91,7 +94,9 @@ def create_app(
     app.state.compiler = ContractCompiler(settings, SelectorResolver(adapters, app.state.connections, settings))
     app.state.jobs = JobStore(app.state.store)
     app.state.job_callbacks = CallbackRegistry(settings.job_callbacks)
+    app.state.recovery = RecoveryStore(app.state.store, settings.max_reverification_attempts)
     register_job_routes(app)
+    register_recovery_routes(app)
 
     @app.exception_handler(RequestValidationError)
     async def safe_compilation_validation(request, exc):
@@ -187,6 +192,10 @@ def create_app(
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     def landing():
         return LANDING_HTML
+
+    @app.get("/console/recovery.js", include_in_schema=False)
+    def recovery_script():
+        return Response(RECOVERY_SCRIPT, media_type="application/javascript")
 
     @app.get("/console", response_class=HTMLResponse, include_in_schema=False)
     def console():

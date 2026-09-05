@@ -20,6 +20,8 @@ from .domain import (
 )
 from .pipeline import ObservationRecord
 from .predicates import evaluate
+from .recovery_models import RecoveryInfo
+from .remediation import GUIDANCE_FIELDS, contains_guidance, remediation_for
 from .retries import TransientObservationError, durable_observation, transient_exception
 from .security import sanitize
 from .signing import ReceiptSigner
@@ -80,7 +82,11 @@ class VerificationEngine:
 
     def evaluate_observation(self, pc, contract, observation: ObservationRecord) -> ConditionResult:
         observation = observation.checkpoint()
-        if observation.predicate_is_redacted(pc.predicate.path):
+        if (contains_guidance(observation.state)
+                or any(part in GUIDANCE_FIELDS for part in pc.predicate.path.split("."))):
+            status, reason, observed = (ConditionStatus.UNKNOWN,
+                "DoneProof remediation and receipts are guidance, never authoritative outcome evidence.", None)
+        elif observation.predicate_is_redacted(pc.predicate.path):
             status, reason, observed = (ConditionStatus.UNKNOWN,
                 "The predicate depends on sensitive state that cannot be retained as evidence.", None)
         elif observation.indeterminate:
@@ -165,10 +171,14 @@ class VerificationEngine:
             fields["receipt_id"] = receipt_id
         if verified_at is not None:
             fields["verified_at"] = verified_at
-        return VerificationReceipt(assurance_level=assurance_level, contract_id=contract.id,
+        receipt = VerificationReceipt(assurance_level=assurance_level, contract_id=contract.id,
             contract_hash=hashlib.sha256(payload).hexdigest(), task=contract.task,
             verdict=self._verdict(results), summary=self._summary(results), results=results,
             duration_ms=round(duration_ms, 2), **fields)
+        receipt.schema_version = "1.1"
+        receipt.remediation = remediation_for(results)
+        receipt.recovery = RecoveryInfo(chain_id=receipt.receipt_id)
+        return receipt
 
     def sign(self, receipt):
         return self.signer.sign(receipt)

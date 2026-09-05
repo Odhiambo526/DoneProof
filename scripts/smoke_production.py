@@ -74,6 +74,11 @@ def main() -> int:
         status, _, _ = fetch(base, path)
         assert status == 401, f"verification job route without workspace key returned HTTP {status}"
 
+    for path in ("/v1/receipts/vr_smoke/history", "/v1/receipts/vr_smoke/remediation"):
+        status, _, _ = fetch(base, path)
+        assert status == 401, f"recovery route without workspace key returned HTTP {status}"
+    status, script, _ = fetch(base, "/console/recovery.js")
+    assert status == 200 and b"recovery-history" in script
     status, _, _ = fetch(base, "/v1/connections")
     assert status == 401, f"connection management without administrator key returned HTTP {status}"
     status, connections, headers = fetch(base, "/connections")
@@ -82,7 +87,7 @@ def main() -> int:
     assert normalized_headers.get("cache-control") == "no-store"
     assert "script-src 'self';" in normalized_headers.get("content-security-policy", "")
     status, console, _ = fetch(base, "/console")
-    assert status == 200 and b'href="/connections"' in console
+    assert status == 200 and b'href="/connections"' in console and b"Verification history" in console
 
     status, landing, _ = fetch(base, "/")
     assert status == 200 and b"Agents act" in landing and b"DoneProof" in landing

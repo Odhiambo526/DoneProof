@@ -168,3 +168,5 @@ pytest -q
 python -m compileall doneproof
 python benchmarks/benchmark_core.py
 ```
+
+See [failure explanations and re-verification](docs/recovery.md) for receipt schema 1.1, recovery APIs, immutable chains and event-triggered checks.
