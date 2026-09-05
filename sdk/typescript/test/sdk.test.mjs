@@ -25,6 +25,7 @@ test('Receipt downgrade and browser assurance fail closed', () => {
   assert.throws(() => parseModel('AssuranceSession', { ...ready, state: 'NEEDS_CLARIFICATION' }), CompatibilityError);
   assert.throws(() => parseModel('AssuranceSession', { ...ready, evidence: [{ condition: 'p1', provider: 'browser',
     evidence_class: 'provider_observation', assurance_level: 'provider_declared' }] }), CompatibilityError);
+  assert.throws(() => parseModel('VerificationReceipt', { ...browser, duration_ms: 9007199254740993 }), CompatibilityError);
 });
 
 for (const status of [429, 500, 503, 'lost']) test('Retry identity after ' + status, async () => {

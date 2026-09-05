@@ -133,3 +133,61 @@ def test_callback_signature_timestamp_deduplication_and_event_binding():
         with pytest.raises(CallbackError) as error:
             verify_callback(changed_body, changed_headers, secret='s' * 32, replay_store=MemoryReplayStore())
         assert 'sentinel' not in str(error.value)
+
+
+def test_actual_worker_callback_is_accepted_by_sdk(assurance):  # noqa: F811
+    from doneproof.job_callbacks import CallbackRegistry
+    app, _, worker, _ = assurance
+    app.state.job_callbacks = CallbackRegistry({'tenant-a': {'complete': {
+        'url': 'https://receiver.example.org/completion', 'secret': 's' * 32}}})
+    worker.callbacks = app.state.job_callbacks
+    events = []
+    def receiver(request):
+        events.append(verify_callback(request.content, request.headers, secret='s' * 32, replay_store=MemoryReplayStore()))
+        return httpx.Response(204)
+    worker.callback_transport = httpx.MockTransport(receiver)
+    async def run():
+        async with AsyncDoneProof(api_key='key-a', base_url='https://testserver', transport=httpx.ASGITransport(app)) as dp:
+            prepared = await dp.assurance.prepare(**TASK, idempotency_key='callback-session')
+            submitted = await dp.assurance.verify(prepared.id, callback_id='complete')
+            await worker.run_until_terminal('tenant-a', submitted.current_job_id)
+            assert await worker.callback_tick()
+            result = await dp.get_job(submitted.current_job_id)
+            assert result.callback.state == 'DELIVERED' and result.callback.attempts == 1
+            assert events[0].job_id == result.id and events[0].receipt_id == result.receipt_id
+    asyncio.run(run())
+
+
+def test_lost_verify_response_creates_one_job(assurance):  # noqa: F811
+    app, _, _, _ = assurance
+    transport = httpx.ASGITransport(app)
+    lost = False
+    async def handler(request):
+        nonlocal lost
+        response = await transport.handle_async_request(request)
+        if request.url.path.endswith('/verify') and not lost:
+            lost = True
+            await response.aclose()
+            raise httpx.ReadError('private-provider-sentinel')
+        return response
+    with DoneProof(api_key='key-a', base_url='https://testserver', transport=httpx.MockTransport(handler)) as dp:
+        session = dp.assurance.prepare(**TASK, idempotency_key='lost-response')
+        result = dp.assurance.verify(session.id)
+        assert result.current_job_id
+    db = app.state.jobs
+    with db.transaction() as con:
+        assert db.execute(con, 'SELECT COUNT(*) AS n FROM verification_jobs').fetchone()['n'] == 1
+
+
+def test_cancel_interrupts_inflight_network_request():
+    cancel = Cancellation()
+    async def slow(request):
+        await asyncio.sleep(10)
+    async def run():
+        async with AsyncDoneProof(api_key='k', base_url='https://testserver', transport=httpx.MockTransport(slow)) as dp:
+            task = asyncio.create_task(dp.assurance.verify('as_123', cancellation=cancel))
+            await asyncio.sleep(0.02)
+            cancel.cancel()
+            with pytest.raises(VerificationCancelled):
+                await asyncio.wait_for(task, 1)
+    asyncio.run(run())

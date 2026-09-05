@@ -149,6 +149,8 @@ signature format. TypeScript verifies these bytes against an independently
 pinned Ed25519 key and checks that the parsed payload matches the displayed
 receipt. This avoids floating-point JSON serialization differences across
 languages. Never trust a key solely because the same API response supplied it.
+The Node client rejects integers outside JavaScript's safe integer range instead
+of silently rounding signed observations; use Python for those receipt values.
 
 Callbacks name an operator-configured tenant callback ID; clients cannot provide
 arbitrary destinations. Verify raw bytes before parsing/dispatching:

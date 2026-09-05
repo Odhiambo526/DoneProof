@@ -16,6 +16,13 @@ const formatPlugin = addFormats as unknown as (instance: Ajv2020) => void;
 formatPlugin(ajv);
 const validators = new Map<keyof ModelMap, ValidateFunction>();
 
+function safeNumbers(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));
+  if (Array.isArray(value)) return value.every(safeNumbers);
+  if (value !== null && typeof value === 'object') return Object.values(value).every(safeNumbers);
+  return true;
+}
+
 export class DoneProofError extends Error {
   constructor(readonly code: string, readonly status?: number, readonly requestId?: string) {
     super(code); this.name = new.target.name;
@@ -31,6 +38,7 @@ export class CallbackError extends DoneProofError {}
 export class DuplicateEvent extends CallbackError {}
 
 export function parseModel<K extends keyof ModelMap>(name: K, value: unknown): ModelMap[K] {
+  if (!safeNumbers(value)) throw new CompatibilityError('numeric_precision_unsupported');
   let validator = validators.get(name);
   if (!validator) { validator = ajv.compile(schemas[name]); validators.set(name, validator); }
   if (!validator(value)) throw new CompatibilityError('unsupported_or_invalid_response');
@@ -313,6 +321,7 @@ export function verifyReceipt(receipt: VerificationReceipt, signedPayloadB64: st
     const publicKey = createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), key]), format: 'der', type: 'spki' });
     if (!verify(null, bytes, publicKey, Buffer.from(receipt.signature ?? '', 'base64'))) return false;
     const { signature: _signature, receipt_hash: _hash, ...payload } = receipt;
-    return isDeepStrictEqual(JSON.parse(bytes.toString('utf8')), payload);
+    const signed = JSON.parse(bytes.toString('utf8')) as unknown;
+    return safeNumbers(signed) && safeNumbers(payload) && isDeepStrictEqual(signed, payload);
   } catch { return false; }
 }

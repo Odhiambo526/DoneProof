@@ -31,6 +31,9 @@ browser = "doneproof.adapters.browser:provider_definition"
 [tool.setuptools.packages.find]
 include = ["doneproof", "doneproof.*"]
 
+[tool.setuptools.package-data]
+doneproof = ["py.typed"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
