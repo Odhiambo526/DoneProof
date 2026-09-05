@@ -340,20 +340,24 @@ class JobStore(ConnectionStore):
                 (job["tenant_id"],)).fetchall()}
             changed = False
             for index, (pc, row) in enumerate(zip(contract.postconditions, rows, strict=True)):
-                if not isinstance(engine.adapters.get(pc.provider), ManagedAdapter):
-                    continue
                 observation = ObservationRecord.model_validate_json(row["observation_json"])
-                authority, connection = observation.authority or {}, connections.get(pc.provider)
-                valid = ((authority.get("mode") == "public" and self.registry.require(pc.provider).manifest.authentication.public_read and connection is None)
-                         or (authority.get("mode") == "managed" and connection and connection["state"] == "connected"
-                             and connection["id"] == authority.get("connection_id")
-                             and connection["revision"] == authority.get("revision")
-                             and (connection["expires_at"] is None or connection["expires_at"] > self.now(con))))
+                if isinstance(engine.adapters.get(pc.provider), ManagedAdapter):
+                    authority, connection = observation.authority or {}, connections.get(pc.provider)
+                    valid = ((authority.get("mode") == "public" and self.registry.require(pc.provider).manifest.authentication.public_read and connection is None)
+                             or (authority.get("mode") == "managed" and connection and connection["state"] == "connected"
+                                 and connection["id"] == authority.get("connection_id")
+                                 and connection["revision"] == authority.get("revision")
+                                 and (connection["expires_at"] is None or connection["expires_at"] > self.now(con))))
+                else:
+                    valid = engine.observation_is_current(pc, observation, job["tenant_id"])
                 if not valid and not observation.indeterminate:
                     changed = True
                     observation.indeterminate = True
                     observation.state = None
                     observation.note = "Workspace connection changed before receipt publication; authoritative state is unknown."
+                    if observation.provenance:
+                        observation.provenance.outcome = "policy_changed"
+                        observation.note = "Browser check changed before publication; independent UI state is unknown."
                     receipt.results[index] = engine.evaluate_observation(pc, contract, observation)
             if changed:
                 results = engine.evaluate_transitions(contract, receipt.results, current["assurance_level"],

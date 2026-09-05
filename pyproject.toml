@@ -19,10 +19,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+browser = ["playwright==1.62.0"]
 dev = [
   "pytest>=8.0",
   "ruff>=0.8",
 ]
+
+[project.entry-points."doneproof.providers"]
+browser = "doneproof.adapters.browser:provider_definition"
 
 [tool.setuptools.packages.find]
 include = ["doneproof", "doneproof.*"]

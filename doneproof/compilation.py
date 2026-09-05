@@ -91,6 +91,8 @@ class ContractCompiler:
         contract = CompletionContract(task=task, postconditions=candidate.postconditions,
             task_started_at=boundary.astimezone(timezone.utc), created_at=now)
         warnings = [issue("preflight_only")]
+        for provider in sorted({pc.provider for pc in candidate.postconditions}):
+            warnings.extend(getattr(self.registry.require(provider).compiler, "compilation_warnings", lambda: [])())
         if any(c.status == "deferred" for c in checks):
             warnings.append(issue("future_discovery"))
         if not deterministic:

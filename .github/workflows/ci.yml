@@ -21,7 +21,7 @@ jobs:
       - name: Lint
         run: ruff check doneproof tests scripts evaluations
       - name: Provider reference matches registry
-        run: python scripts/provider_docs.py --check
+        run: python scripts/provider_docs.py --check --installed
 
   test:
     runs-on: ubuntu-latest
@@ -55,6 +55,31 @@ jobs:
           test "$(docker inspect --format '{{.State.Running}}' doneproof-worker-smoke)" = true
           docker stop --time 15 doneproof-worker-smoke
           test "$(docker inspect --format '{{.State.ExitCode}}' doneproof-worker-smoke)" = 0
+
+  browser:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install independent Chromium verifier
+        run: |
+          python -m pip install -e '.[dev,browser]'
+          python -m playwright install --with-deps --only-shell chromium
+      - name: Real sandboxed Chromium integration tests
+        env:
+          DONEPROOF_BROWSER_TESTS: "1"
+        run: pytest tests/test_browser_chromium.py -q
+      - name: Build browser worker image
+        run: docker build -f Dockerfile.browser -t doneproof:browser .
+      - name: Browser image offline sandbox smoke
+        run: >-
+          docker run --rm --init --network=none --shm-size=256m --memory=1g --pids-limit=256
+          --security-opt seccomp=deploy/browser-seccomp.json
+          -v "$PWD/scripts/browser_smoke.py:/app/browser_smoke.py:ro"
+          doneproof:browser python browser_smoke.py
 
   postgres:
     runs-on: ubuntu-latest
@@ -106,7 +131,7 @@ jobs:
 
   production-smoke:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [lint, test, docker, postgres]
+    needs: [lint, test, docker, postgres, browser]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

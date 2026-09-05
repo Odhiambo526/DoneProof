@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=ROOT / "docs/providers.md")
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--installed", action="store_true", help="Include installed doneproof.providers entry points")
+    parser.add_argument("--installed", action="store_true", default=True, help="Include installed doneproof.providers entry points (default)")
     args = parser.parse_args()
     rendered = render(default_registry(plugins=args.installed))
     if args.check:

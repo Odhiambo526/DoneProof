@@ -103,6 +103,7 @@ def issue(code, category="unverifiable_outcome", *, ids=(), fields=()):
         "future_discovery": "New resources are resolved after execution within the registered time boundary; ambiguity remains UNKNOWN.",
         "preflight_only": "Selector checks are temporary planning checks. Verification re-observes authoritative state.",
         "model_interpretation": "Review model-interpreted intent before registering the contract.",
+        "browser_lower_assurance": "Browser UI evidence has lower assurance than authoritative APIs and never substitutes for an available API.",
     }
     return CompilationIssue(code=code, category=category, message=messages[code],
                             condition_ids=list(ids), fields=list(fields))

@@ -172,3 +172,7 @@ python benchmarks/benchmark_core.py
 ```
 
 See [failure explanations and re-verification](docs/recovery.md) for receipt schema 1.1, recovery APIs, immutable chains and event-triggered checks.
+
+### Browser evidence for UI-only workflows
+
+The optional browser worker independently checks tenant-approved UI postconditions in fresh sandboxed Chromium. Browser evidence is lower assurance than an authoritative API; login, challenge, ambiguous UI and API-covered workflows fail closed. See [configuration, receipt provenance, screenshot retention and deployment](docs/browser-provider.md).

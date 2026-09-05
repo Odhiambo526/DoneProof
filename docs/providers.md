@@ -532,3 +532,100 @@ Resources: signed_event. Evidence sensitivity: **restricted**.
   "compiler_instructions": "Future webhook events use mode=event and exact source, event_type and object_id selectors. Predicates may inspect scalar payload fields. Executor claims and DoneProof guidance are never evidence."
 }
 ```
+
+## Browser UI (`browser` 1.0.0)
+
+Independent UI observations with lower assurance than authoritative APIs. Only approved tenant checks without API coverage are eligible.
+
+Resources: check. Evidence sensitivity: **restricted**.
+
+```json
+{
+  "sdk_version": 1,
+  "provider_id": "browser",
+  "version": "1.0.0",
+  "display_name": "Browser UI",
+  "description": "Independent UI observations with lower assurance than authoritative APIs. Only approved tenant checks without API coverage are eligible.",
+  "resource_types": [
+    "check"
+  ],
+  "evidence_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "check_id": {
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+        "type": "string"
+      },
+      "matched": {
+        "type": "boolean"
+      },
+      "revision": {
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "check_id",
+      "revision",
+      "matched"
+    ],
+    "type": "object"
+  },
+  "selector_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "check_id": {
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+        "type": "string"
+      },
+      "revision": {
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "check_id",
+      "revision"
+    ],
+    "type": "object"
+  },
+  "supported_predicates": [
+    "eq"
+  ],
+  "discovery": {
+    "supported": false,
+    "identity_field": "check_id",
+    "identity_schema": {
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+      "type": "string"
+    },
+    "scope_fields": [],
+    "boundary_field": null,
+    "event_driven": false
+  },
+  "baseline_support": true,
+  "transition_support": true,
+  "authentication": {
+    "mode": "none",
+    "requirements": [
+      "operator-approved tenant check",
+      "fresh unauthenticated verifier session"
+    ],
+    "public_read": false,
+    "refresh_required": false,
+    "authorization_origin": null,
+    "onboarding_order": 100
+  },
+  "rate_limit": {
+    "concurrency": 2,
+    "preflight_concurrency": 1,
+    "attempts": 1,
+    "base_seconds": 1.0,
+    "cap_seconds": 1.0
+  },
+  "evidence_sensitivity": "restricted",
+  "sensitive_paths": [],
+  "context_fields": [],
+  "compiler_instructions": "Only explicit clauses: Verify browser check \"ID\" at revision \"SHA256\" matches. Use IDs and revisions returned by GET /v1/browser/checks. Predicate must be matched eq true. Never substitute browser checks for Gmail, GitHub, signed webhook or other authoritative API evidence. Browser evidence is lower assurance; never invent checks, revisions, URLs, scripts or browser state."
+}
+```

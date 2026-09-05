@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from . import __version__
 from .adapters.base import ProviderAdapter
+from .browser_api import register_browser_routes
 from .compilation import ContractCompiler
 from .compilation_models import CompilationResult
 from .config import Settings, get_settings
@@ -98,6 +99,7 @@ def create_app(
     app.state.recovery = RecoveryStore(app.state.store, settings.max_reverification_attempts)
     register_job_routes(app)
     register_recovery_routes(app)
+    register_browser_routes(app)
 
     @app.exception_handler(RequestValidationError)
     async def safe_compilation_validation(request, exc):

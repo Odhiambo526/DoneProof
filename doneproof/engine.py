@@ -7,6 +7,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from .adapters.base import ObservationContext, ProviderAdapter
 from .domain import (
@@ -55,6 +56,9 @@ class VerificationEngine:
         adapter = self.adapters.get(pc.provider)
         if adapter is None:
             return ObservationRecord(indeterminate=True, note="Provider is not available in this deployment.")
+        if not adapter.validate_postcondition(pc):
+            return ObservationRecord(indeterminate=True, provenance=adapter.default_provenance(),
+                note="The provider does not support this postcondition.")
         if self.provider_binding_check and not self.provider_binding_check(tenant_id, contract.id, pc.provider):
             return ObservationRecord(indeterminate=True, note="The registered provider definition changed; register a new run.")
         context = ObservationContext(tenant_id=tenant_id, contract_id=contract.id,
@@ -67,6 +71,7 @@ class VerificationEngine:
             definition = self.registry.get(pc.provider)
             return ObservationRecord(state=observation.state, source_url=observation.source_url,
                 note=observation.note, indeterminate=observation.indeterminate, authority=observation.authority,
+                provenance=observation.provenance,
                 redacted_paths=list(definition.manifest.sensitive_paths) if definition else [],
                 latency_ms=round((time.perf_counter() - started) * 1000, 2))
         except TransientObservationError:
@@ -92,6 +97,13 @@ class VerificationEngine:
         return adapter is None or adapter.observation_is_current(observation.authority, tenant_id)
 
     def evaluate_observation(self, pc, contract, observation: ObservationRecord) -> ConditionResult:
+        adapter = self.adapters.get(pc.provider)
+        if adapter:
+            if observation.provenance is None:
+                observation = observation.model_copy(update={"provenance": adapter.default_provenance()})
+            if not adapter.validate_postcondition(pc):
+                observation = observation.model_copy(update={"state": None, "indeterminate": True,
+                    "note": "The provider does not support this postcondition."})
         definition = self.registry.get(pc.provider)
         if definition:
             spec = definition.manifest
@@ -118,7 +130,7 @@ class VerificationEngine:
             status=status, predicate=pc.predicate,
             evidence=Evidence(provider=pc.provider, selector=sanitize(self.selector_for(pc, contract)),
                 observed=sanitize(observed), source_url=observation.source_url,
-                note=observation.note, fetched_at=observation.fetched_at),
+                note=observation.note, fetched_at=observation.fetched_at, provenance=observation.provenance),
             reason=reason, transition_required=pc.require_change, latency_ms=observation.latency_ms)
 
     async def _verify_one(self, pc, contract: CompletionContract, tenant_id: str, capture=False) -> ConditionResult:
@@ -169,6 +181,13 @@ class VerificationEngine:
                 result.reason = "Desired state already satisfied the condition before execution; no requested transition was proven."
                 result.evidence.note = result.reason
             elif result.status == ConditionStatus.PASS and baseline.status == ConditionStatus.FAIL:
+                current_provenance, prior_provenance = result.evidence.provenance, baseline.evidence.provenance
+                if current_provenance and (not prior_provenance or
+                        prior_provenance.check_revision != current_provenance.check_revision):
+                    result.status = ConditionStatus.UNKNOWN
+                    result.reason = "The browser check changed after the registered baseline. Register a new run."
+                    result.evidence.note = result.reason
+                    continue
                 result.reason = "Transition verified: pre-execution state did not satisfy the condition and post-execution state does."
                 result.evidence.note = (result.evidence.note + " " if result.evidence.note else "") + result.reason
         return results
@@ -183,13 +202,13 @@ class VerificationEngine:
             fields["receipt_id"] = receipt_id
         if verified_at is not None:
             fields["verified_at"] = verified_at
-        receipt = VerificationReceipt(assurance_level=assurance_level, contract_id=contract.id,
+        fields.setdefault("receipt_id", f"vr_{uuid4().hex[:20]}")
+        receipt = VerificationReceipt(schema_version="1.2" if any(r.evidence.provenance for r in results) else "1.1",
+            recovery=RecoveryInfo(chain_id=fields["receipt_id"]), assurance_level=assurance_level, contract_id=contract.id,
             contract_hash=hashlib.sha256(payload).hexdigest(), task=contract.task,
             verdict=self._verdict(results), summary=self._summary(results), results=results,
             duration_ms=round(duration_ms, 2), **fields)
-        receipt.schema_version = "1.1"
         receipt.remediation = remediation_for(results)
-        receipt.recovery = RecoveryInfo(chain_id=receipt.receipt_id)
         return receipt
 
     def sign(self, receipt):

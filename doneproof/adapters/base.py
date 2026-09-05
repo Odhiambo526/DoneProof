@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from ..browser_models import BrowserProvenance
+
 
 @dataclass(frozen=True)
 class ObservationContext:
@@ -22,9 +24,16 @@ class ProviderObservation:
     note: str | None = None
     indeterminate: bool = False
     authority: dict[str, Any] | None = None
+    provenance: BrowserProvenance | None = None
 
 
 class ProviderAdapter(ABC):
+    def default_provenance(self):
+        return None
+
+    def validate_postcondition(self, pc):
+        return True
+
     def observation_is_current(self, authority: dict[str, Any] | None, tenant_id: str) -> bool:
         return True
 
