@@ -234,3 +234,19 @@ class GitHubAdapter(ProviderAdapter):
                 }
             )
         return out
+
+
+def provider_definition():
+    from .builtin_provider import definition
+    return definition({
+        "provider_id": "github", "display_name": "GitHub", "resource_types": ("issue", "pull_request"),
+        "description": "Issues and pull requests with time-bounded resource discovery. Public anonymous reads are supported when no connection exists.",
+        "discovery": {"supported": True, "identity_field": "number", "identity_schema": {"type": "integer", "minimum": 1, "maximum": 2**53-1},
+                      "scope_fields": ("repo", "kind"), "boundary_field": "created_after"},
+        "authentication": {"mode": "managed_oauth", "requirements": ("Read-only GitHub App issues and pull_requests permissions on installed repositories",),
+                           "public_read": True, "authorization_origin": "https://github.com"},
+        "rate_limit": {"concurrency": 8, "preflight_concurrency": 4, "attempts": 4, "base_seconds": 1.0, "cap_seconds": 60.0},
+        "evidence_sensitivity": "confidential",
+        "compiler_instructions": "GitHub discovery requires exact title, repo and kind. Existing issue/PR mutations require transitions. No review approval or code correctness evidence.",
+    }, lambda runtime: GitHubAdapter(token=runtime.credentials["access_token"] if runtime.credentials else None,
+            allow_env=False, transport=runtime.transport, response_hooks=list(runtime.response_hooks)))

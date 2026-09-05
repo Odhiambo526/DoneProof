@@ -18,6 +18,8 @@ def test_phase1_data_survives_additive_job_migration(connection_settings, monkey
     with monkeypatch.context() as patch:
         patch.setattr(store_module, "migrate_jobs", lambda con: None)
         patch.setattr(store_module, "migrate_recovery", lambda con: None)
+        patch.setattr(store_module, "migrate_providers", lambda con, **kwargs: None)
+        patch.setattr(store_module, "synchronize_slots", lambda con, registry, **kwargs: None)
         legacy = Store(connection_settings.storage_dsn)
     db = JobStore(legacy)
     if db.pg:

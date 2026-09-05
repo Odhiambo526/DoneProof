@@ -16,6 +16,8 @@ durable_observation: ContextVar[bool] = ContextVar("durable_observation", defaul
 
 class TransientObservationError(Exception):
     def __init__(self, code="provider_unavailable", retry_after=0.0):
+        if not isinstance(code, str) or code not in {"provider_unavailable", "provider_rate_limited", "provider_timeout", "provider_network_error"}:
+            code = "provider_unavailable"
         super().__init__(code)
         self.code = code
         self.retry_after = max(0.0, retry_after)
@@ -33,12 +35,13 @@ class RetryPolicy:
         return max(retry_after, ceiling * (0.5 + 0.5 * rng()))
 
 
-POLICIES = {
-    "github": RetryPolicy(4, 1.0, 60.0),
-    "gmail": RetryPolicy(4, 1.0, 32.0),
-    "webhook": RetryPolicy(2, 0.5, 5.0),
-    "unresolved": RetryPolicy(1, 1.0, 1.0),
-}
+class _ProviderPolicies:
+    def __getitem__(self, provider):
+        from .provider_registry import default_registry
+        return default_registry().policy(provider)
+
+
+POLICIES = _ProviderPolicies()
 CALLBACK_POLICY = RetryPolicy(6, 2.0, 300.0)
 
 

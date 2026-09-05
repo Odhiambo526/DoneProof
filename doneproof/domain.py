@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_serializer, model_validator
 
 from .recovery_models import RecoveryInfo, Remediation
 
-ProviderName = Literal["github", "gmail", "webhook", "unresolved"]
+ProviderName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
 AssuranceLevel = Literal["registered", "submitted"]
 
 

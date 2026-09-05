@@ -16,7 +16,7 @@ from .connections import ConnectionConflict
 
 class ConnectionView(BaseModel):
     id: str
-    provider: Literal["gmail", "github"]
+    provider: str
     state: Literal["connected", "expired", "reconnect_required", "disabled", "error"]
     account_label: str | None
     expires_at: int | None
@@ -30,7 +30,7 @@ class ConnectionView(BaseModel):
 
 
 class OnboardingProvider(BaseModel):
-    provider: Literal["gmail", "github"]
+    provider: str
     onboarding_available: bool
     installation_url: str | None
 
@@ -84,7 +84,7 @@ def register_connection_routes(app):
         raise HTTPException(401, "A workspace connection administrator key is required")
 
     def provider_name(provider):
-        if provider not in {"gmail", "github"}:
+        if not (definition := service.registry.get(provider)) or not definition.connection_factory:
             raise HTTPException(404, "Provider not found")
         return provider
 
@@ -111,9 +111,17 @@ def register_connection_routes(app):
     @app.get("/v1/connections", response_model=ConnectionList, tags=["Connections"])
     def list_connections(tenant: str = Depends(administrator)):
         return {"connections": [service.db.public(row) for row in service.db.list(tenant)],
-                "providers": [{"provider": name, "onboarding_available": service.configured(name),
-                    "installation_url": "https://github.com/apps/" + settings.github_app_slug + "/installations/new"
-                        if name == "github" and settings.github_app_slug else None} for name in ("gmail", "github")]}
+                "providers": [{"provider": d.manifest.provider_id,
+                    "onboarding_available": service.configured(d.manifest.provider_id),
+                    "installation_url": d.installation_url(settings)}
+                    for d in sorted(service.registry, key=lambda d: d.manifest.provider_id) if d.connection_factory]}
+
+
+    @app.get("/v1/connections/provider-metadata", tags=["Connections"])
+    def provider_metadata(tenant: str = Depends(administrator)):
+        return {"providers": [{"provider": d.manifest.provider_id, "display_name": d.manifest.display_name,
+                "authorization_origin": d.manifest.authentication.authorization_origin}
+                for d in service.registry if d.connection_factory]}
 
     @app.get("/v1/connections/{connection_id}", response_model=ConnectionView, tags=["Connections"])
     def get_connection(connection_id: str, tenant: str = Depends(administrator)):

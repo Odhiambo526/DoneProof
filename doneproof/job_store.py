@@ -11,7 +11,6 @@ from .connection_store import ConnectionStore
 from .domain import ConditionResult, VerificationReceipt
 from .job_models import TERMINAL, JobContract
 from .pipeline import ObservationRecord
-from .retries import POLICIES
 
 
 def canonical(value):
@@ -31,6 +30,42 @@ class QueueFull(Exception):
 
 
 class JobStore(ConnectionStore):
+    def __init__(self, store):
+        super().__init__(store)
+        self.registry = store.registry
+
+    def provider_manifest(self, contract):
+        return {pc.provider: self.registry.require(pc.provider).fingerprint
+                for pc in contract.postconditions if pc.provider != "unresolved"}
+
+    def bind_contract(self, tenant, contract):
+        with self.transaction() as con:
+            for provider, fingerprint in self.provider_manifest(contract).items():
+                self.execute(con, """INSERT INTO provider_contract_bindings(tenant_id,contract_id,provider,fingerprint)
+                    VALUES(?,?,?,?) ON CONFLICT(tenant_id,contract_id,provider) DO NOTHING""",
+                    (tenant, contract.id, provider, fingerprint))
+
+    def binding_current(self, tenant, contract_id, provider):
+        with self.transaction() as con:
+            row = self._row(self.execute(con, """SELECT fingerprint FROM provider_contract_bindings
+                WHERE tenant_id=? AND contract_id=? AND provider=?""", (tenant, contract_id, provider)))
+        definition = self.registry.get(provider)
+        return not row or bool(definition and row["fingerprint"] == definition.fingerprint)
+
+    def providers_current(self, job):
+        from .adapters.builtin_provider import builtin_definitions
+        expected = json.loads(job["provider_manifest_json"])
+        contract = JobContract.model_validate_json(job["contract_json"])
+        names = {pc.provider for pc in contract.postconditions if pc.provider != "unresolved"}
+        # Migration compatibility: pre-SDK jobs can only contain shipped provider
+        # names. Compare them against the immutable shipped v1 declarations.
+        if not expected:
+            historical = {d.manifest.provider_id: d.fingerprint for d in builtin_definitions()}
+            expected = {pc.provider: historical.get(pc.provider) for pc in contract.postconditions
+                        if pc.provider != "unresolved"}
+        return set(expected) == names and all(value and (definition := self.registry.get(name)) and definition.fingerprint == value
+                   for name, value in expected.items())
+
     def execute_many(self, con, statement, values):
         cur = con.cursor()
         try:
@@ -53,6 +88,7 @@ class JobStore(ConnectionStore):
             return self.create_in_transaction(con, tenant, key, request_hash, contract, baselines, assurance, deadline, callback)
 
     def create_in_transaction(self, con, tenant, key, request_hash, contract, baselines, assurance, deadline, callback=None):
+        manifest = canonical(self.provider_manifest(contract))
         self.execute(con, "INSERT INTO verification_tenants(tenant_id) VALUES(?) ON CONFLICT DO NOTHING", (tenant,))
         self.execute(con, "SELECT tenant_id FROM verification_tenants WHERE tenant_id=?" + self.lock(), (tenant,))
         row = self._row(self.execute(con,
@@ -69,12 +105,12 @@ class JobStore(ConnectionStore):
         job_id = "vj_" + identifier
         self.execute(con, """INSERT INTO verification_jobs
             (tenant_id,id,idempotency_hash,request_hash,state,contract_json,baselines_json,assurance_level,
-             condition_count,created_at,deadline_at,next_run_at,receipt_id,callback_id,callback_fingerprint)
-            VALUES(?,?,?,?,'QUEUED',?,?,?,?,?,?,?,?,?,?)""",
+             condition_count,created_at,deadline_at,next_run_at,receipt_id,callback_id,callback_fingerprint,provider_manifest_json)
+            VALUES(?,?,?,?,'QUEUED',?,?,?,?,?,?,?,?,?,?,?)""",
             (tenant, job_id, digest(key), request_hash, contract.model_dump_json(),
              canonical({k: v.model_dump(mode="json") for k, v in baselines.items()}), assurance,
              len(contract.postconditions), now, now + deadline, now, "vr_" + identifier,
-             callback[0] if callback else None, callback[1] if callback else None))
+             callback[0] if callback else None, callback[1] if callback else None, manifest))
         self.execute_many(con, """INSERT INTO verification_conditions
             (tenant_id,job_id,condition_id,ordinal,provider,state,next_attempt_at) VALUES(?,?,?,?,?,'PENDING',?)""",
             [(tenant, job_id, pc.id, ordinal, pc.provider, now) for ordinal, pc in enumerate(contract.postconditions)])
@@ -186,6 +222,9 @@ class JobStore(ConnectionStore):
             if job["deadline_at"] <= now:
                 self._terminal(con, job, "EXPIRED", "deadline_exceeded", now)
                 return None
+            if not self.providers_current(job):
+                self._terminal(con, job, "INTERNAL_ERROR", "provider_definition_changed", now)
+                return None
             token = uuid4().hex
             self.execute(con, """UPDATE verification_jobs SET lease_token=?,lease_until=?,
                 state=CASE WHEN state='QUEUED' THEN 'OBSERVING' ELSE state END,
@@ -194,7 +233,7 @@ class JobStore(ConnectionStore):
             interrupted = self.execute(con, """SELECT * FROM verification_conditions
                 WHERE tenant_id=? AND job_id=? AND state='RUNNING'""", (job["tenant_id"], job["id"])).fetchall()
             for condition in interrupted:
-                exhausted = condition["attempts"] >= POLICIES[condition["provider"]].attempts
+                exhausted = condition["attempts"] >= self.registry.policy(condition["provider"]).attempts
                 observation = ObservationRecord(indeterminate=True, note="Provider observation was interrupted before authoritative state was established.")
                 self.execute(con, """UPDATE verification_conditions SET state=?,lease_token=NULL,observation_json=?,
                     infrastructure_failure=?,error_code='worker_interrupted',next_attempt_at=?
@@ -218,7 +257,7 @@ class JobStore(ConnectionStore):
                 if row["provider"] in saturated:
                     continue
                 slot = self._row(self.execute(con, """SELECT * FROM verification_provider_slots
-                    WHERE provider=? AND lease_until<=? ORDER BY slot LIMIT 1""" + self.lock(skip=True), (row["provider"], now)))
+                    WHERE provider=? AND lease_until<=? AND slot<? ORDER BY slot LIMIT 1""" + self.lock(skip=True), (row["provider"], now, self.registry.concurrency().get(row["provider"], 0))))
                 if not slot:
                     saturated.add(row["provider"])
                     continue
@@ -250,7 +289,7 @@ class JobStore(ConnectionStore):
             for claim, observation, failure, delay in outcomes:
                 if observation:
                     observation = observation.checkpoint()
-                retry = failure is not None and claim["attempts"] < POLICIES[claim["provider"]].attempts
+                retry = failure is not None and claim["attempts"] < self.registry.policy(claim["provider"]).attempts
                 if failure and not retry:
                     observation = ObservationRecord(indeterminate=True,
                         note="Provider remained unavailable after the bounded retry policy was exhausted.")
@@ -305,7 +344,7 @@ class JobStore(ConnectionStore):
                     continue
                 observation = ObservationRecord.model_validate_json(row["observation_json"])
                 authority, connection = observation.authority or {}, connections.get(pc.provider)
-                valid = ((authority.get("mode") == "public" and pc.provider == "github" and connection is None)
+                valid = ((authority.get("mode") == "public" and self.registry.require(pc.provider).manifest.authentication.public_read and connection is None)
                          or (authority.get("mode") == "managed" and connection and connection["state"] == "connected"
                              and connection["id"] == authority.get("connection_id")
                              and connection["revision"] == authority.get("revision")

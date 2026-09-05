@@ -10,7 +10,7 @@ button:disabled{opacity:.5;cursor:default}.secondary{background:#26384d;color:#f
 #notice{min-height:26px}h2{text-transform:capitalize}strong{color:#b9f6dc}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #79c8ff;outline-offset:3px}
 </style><script src="/connections.js" defer></script></head>
 <body><main><a href="/console">← Assurance console</a><h1>Connection Settings</h1>
-<p>Connect one Gmail mailbox and one GitHub account for this workspace. Verification reads provider state independently.</p>
+<p>Connect provider accounts for this workspace. Verification reads provider state independently.</p>
 <section><label for="admin-key">Workspace connection administrator key</label>
 <input id="admin-key" type="password" autocomplete="off" spellcheck="false">
 <button id="load">Load connections</button><p class="muted">Use the administrator key supplied by your DoneProof operator. It is kept in this page only.</p></section>
@@ -47,26 +47,28 @@ function button(text, parent, action) {
 }
 async function load() {
   try {
-    const data = await api('');
+    const [data, metadata] = await Promise.all([api(''), api('/provider-metadata')]);
     const host = byId('connections');
     host.replaceChildren();
     for (const provider of data.providers) {
+      const definition = metadata.providers.find(item => item.provider === provider.provider);
+      if (!definition) continue;
       const row = data.connections.find(item => item.provider === provider.provider);
       const card = element('section', '', host);
-      element('h2', provider.provider === 'github' ? 'GitHub' : 'Gmail', card);
+      element('h2', definition.display_name, card);
       element('strong', row ? row.state.replaceAll('_', ' ') : 'Not connected', card);
       if (row && row.account_label) element('p', row.account_label, card);
       if (row && row.expires_at) element('p', 'Access expires: ' + new Date(row.expires_at * 1000).toLocaleString(), card);
       if (row && row.error_code) element('p', 'Action: ' + row.error_code.replaceAll('_', ' '), card);
       if (row && row.revocation_pending) element('p', 'Provider revocation is pending. Verification is disabled. Retry disconnect.', card);
       if (provider.installation_url) {
-        const link = element('a', 'Install the DoneProof GitHub App on selected repositories', card);
+        const link = element('a', 'Install the provider app on selected resources', card);
         link.href = provider.installation_url; link.target = '_blank'; link.rel = 'noopener noreferrer';
       }
       const connect = button(row ? 'Reconnect' : 'Connect', card, async () => {
         const data = await api('/' + provider.provider + '/authorize', 'POST');
         const url = new URL(data.authorization_url);
-        const allowed = provider.provider === 'gmail' ? 'https://accounts.google.com' : 'https://github.com';
+        const allowed = definition.authorization_origin;
         if (url.origin !== allowed) throw new Error('Invalid authorization destination');
         window.location.assign(url.href);
       });
@@ -80,7 +82,7 @@ async function load() {
         }).className = 'secondary';
         if (row.state === 'disabled' && row.revocation_pending) {
           button('Confirm revocation in provider settings', card, async () => {
-            if (!window.confirm('Have you already revoked DoneProof access or the legacy token in Google/GitHub settings? This erases locally retained credentials.')) return;
+            if (!window.confirm('Have you already revoked DoneProof access or the legacy token in provider settings? This erases locally retained credentials.')) return;
             await api('/' + row.id + '/confirm-external-revocation', 'POST'); await load();
           }).className = 'secondary';
         }

@@ -50,3 +50,17 @@ class WebhookEvidenceAdapter(ProviderAdapter):
                 else f"Matched {len(events)} events; using the most recent authoritative event."
             ),
         )
+
+
+def provider_definition():
+    from .builtin_provider import definition
+    return definition({
+        "provider_id": "webhook", "display_name": "Webhook", "resource_types": ("signed_event",),
+        "description": "Signed evidence events from customer systems and proprietary workflows.",
+        "discovery": {"supported": True, "identity_field": "event_id", "identity_schema": {"type": "string"},
+                      "boundary_field": "created_after", "event_driven": True},
+        "authentication": {"mode": "signed_events", "requirements": ("Tenant-bound configured source with independently validated event HMAC and timestamp",)},
+        "rate_limit": {"concurrency": 16, "preflight_concurrency": 4, "attempts": 2, "base_seconds": 0.5, "cap_seconds": 5.0},
+        "evidence_sensitivity": "restricted",
+        "compiler_instructions": "Future webhook events use mode=event and exact source, event_type and object_id selectors. Predicates may inspect scalar payload fields. Executor claims and DoneProof guidance are never evidence.",
+    }, lambda runtime: WebhookEvidenceAdapter(runtime.store))

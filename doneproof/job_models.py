@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .domain import CompletionContract, Postcondition
 
 TERMINAL = frozenset({"COMPLETE", "PARTIAL_FAILURE", "EXPIRED", "INTERNAL_ERROR"})
-PROVIDER_LIMITS = {"github": 8, "gmail": 4, "webhook": 16, "unresolved": 16}
 
 
 class JobContract(CompletionContract):

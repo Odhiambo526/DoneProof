@@ -10,24 +10,26 @@ import httpx
 from .compilation_models import Candidate
 from .config import Settings
 from .domain import CompletionContract
+from .provider_registry import default_registry
 
-_SELECTOR_PROPERTIES: dict[str, Any] = {
-    "repo": {"type": ["string", "null"]},
-    "kind": {"type": ["string", "null"], "enum": ["issue", "pull_request", None]},
-    "number": {"type": ["integer", "null"]},
-    "title": {"type": ["string", "null"]},
-    "author": {"type": ["string", "null"]},
-    "head_ref": {"type": ["string", "null"]},
-    "message_id": {"type": ["string", "null"]},
-    "subject": {"type": ["string", "null"]},
-    "to": {"type": ["string", "null"]},
-    "thread_id": {"type": ["string", "null"]},
-    "location": {"type": ["string", "null"], "enum": ["sent", "draft", "other", None]},
-    "source": {"type": ["string", "null"]},
-    "event_type": {"type": ["string", "null"]},
-    "object_id": {"type": ["string", "null"]},
-    "reason": {"type": ["string", "null"]},
-}
+
+def selector_properties(registry):
+    properties = {}
+    for definition in registry:
+        spec = definition.manifest
+        for name, schema in spec.selector_schema["properties"].items():
+            if name == spec.discovery.boundary_field:
+                continue  # The server owns temporal boundaries.
+            nullable = {"anyOf": [schema, {"type": "null"}]}
+            if name in properties and properties[name] != nullable:
+                properties[name] = {"anyOf": [properties[name], nullable]}
+            else:
+                properties[name] = nullable
+    properties["reason"] = {"type": ["string", "null"]}
+    return properties
+
+
+_SELECTOR_PROPERTIES = selector_properties(default_registry())
 
 CONTRACT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -43,7 +45,7 @@ CONTRACT_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "id": {"type": "string"},
                     "description": {"type": "string"},
-                    "provider": {"type": "string", "enum": ["github", "gmail", "webhook", "unresolved"]},
+                    "provider": {"type": "string", "enum": [d.manifest.provider_id for d in default_registry()] + ["unresolved"]},
                     "selector": {
                         "type": "object",
                         "properties": _SELECTOR_PROPERTIES,
@@ -83,28 +85,13 @@ CONTRACT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-SYSTEM = """You compile human tasks into independently verifiable completion contracts for DoneProof.
-Supported evidence providers: GitHub, Gmail, and trusted webhook events.
-
-Output OUTCOMES, never execution steps. Every required user outcome becomes a required postcondition. Keep contracts minimal and non-redundant. Never invent identifiers.
-
-Return every selector field defined by the schema. Fields irrelevant to a provider MUST be null. reason MUST be null unless provider=unresolved.
-
-GitHub normalized paths:
-number,title,body,state,locked,author,assignees,labels,created_at,updated_at,closed_at,draft,merged,mergeable,head_ref,base_ref
-GitHub selector: repo, kind, number if known; otherwise exact title/author/head_ref constraints for safe discovery.
-
-Gmail normalized paths:
-message_id,thread_id,location,subject,from,to,cc,bcc,internal_date,attachment_names
-Gmail selector: message_id if known; otherwise subject/to/thread_id for discovery. Use location only if it is part of the requested outcome. For 'send email', location must be verified with predicate eq path='location' expected='sent'. Attachments use contains/contains_all on attachment_names.
-
-Webhook normalized paths:
-event_id,source,event_type,object_id,occurred_at,payload,payload_hash
-Webhook selector: source,event_type,object_id if known. Predicates can inspect payload.<field>.
-
-If identifiers are too weak to verify safely, use provider='unresolved', set every selector field null except reason, and use a simple exists predicate. UNKNOWN is preferable to fabricated assurance.
-Use require_change=true when the user asks to mutate an existing resource and credit should require proof that the state changed during this run (for example assign, close, approve, update, merge). Use require_change=false for pure state assurance or new-resource discovery where the registered creation-time boundary already proves freshness.
-Use stable ids p1,p2,p3. Prefer equality, membership and existence predicates.
+SYSTEM = """You compile human tasks into independently verifiable DoneProof completion contracts.
+Output outcomes, never execution steps. Cover every requested outcome. Never invent identifiers.
+Use only installed provider declarations and tenant capabilities supplied by the server.
+Return all schema selector fields; irrelevant fields must be null. reason is only for unresolved.
+Unverifiable outcomes use provider=unresolved. UNKNOWN is preferable to fabricated assurance.
+Existing-resource mutations require require_change=true and registered false-to-true baselines.
+New-resource discovery uses the server-owned creation boundary. Pure reads do not require change.
 """
 
 
@@ -132,15 +119,11 @@ multiple reasonable interpretations. A caller's claim of success is never eviden
 Only use the workspace capabilities supplied by the server. Credentials are unavailable.
 Use only identifiers literally supplied in the task or typed context. Never invent IDs.
 Existing-resource mutations require mode=transition and require_change=true on every condition.
-New-resource creation uses mode=create; trusted future webhook events use mode=event.
+New-resource creation uses mode=create; authorized future event providers use mode=event.
 All requested outcomes must be required. Do not use assumptions to remove requirements.
 Use exact equality/collection predicates on supported fields, not root/field existence.
-Gmail discovery requires BOTH exact subject and recipient; do not filter by location.
-For send, include location=sent, subject equality and recipient containment.
-GitHub discovery requires exact title; webhook selection requires source, event_type, object_id.
 Conditions use p1, p2, ... identifiers. Do not include secrets, confidence or extra fields.
-Read receipts, message body contents, PR review approvals, code correctness and business
-satisfaction are not observable through these adapters. Do not substitute nearby metadata.
+Never substitute a nearby metadata field for an outcome the provider cannot authoritatively observe.
 """
 
 
@@ -153,7 +136,14 @@ class InvalidCandidate(Exception):
 
 
 class AstraCompiler:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, registry=None):
+        self.registry = registry or default_registry()
+        self.schema = copy.deepcopy(CANDIDATE_SCHEMA)
+        condition = self.schema["properties"]["postconditions"]["items"]["properties"]
+        condition["provider"]["enum"] = [d.manifest.provider_id for d in self.registry] + ["unresolved"]
+        props = selector_properties(self.registry)
+        condition["selector"].update(properties=props, required=list(props))
+        self.system = PIPELINE_SYSTEM + "\nInstalled provider declarations:\n" + json.dumps(self.registry.documents())
         self.api_key = settings.openai_api_key
         self.model = settings.openai_model
         self.transport = None
@@ -173,7 +163,7 @@ class AstraCompiler:
             "max_output_tokens": 8192,
             "reasoning": {"effort": effort},
             "input": [
-                {"role": "system", "content": PIPELINE_SYSTEM},
+                {"role": "system", "content": self.system},
                 {
                     "role": "user",
                     "content": json.dumps({"task": task, "context": context,
@@ -185,7 +175,7 @@ class AstraCompiler:
                     "type": "json_schema",
                     "name": "completion_candidate",
                     "strict": True,
-                    "schema": CANDIDATE_SCHEMA,
+                    "schema": self.schema,
                 },
                 "verbosity": "low",
             },
@@ -244,23 +234,8 @@ class AstraCompiler:
         raise RuntimeError("Model response did not contain contract output")
 
     @staticmethod
-    def _validate_compiled_selectors(contract: CompletionContract) -> None:
+    def _validate_compiled_selectors(contract: CompletionContract, registry=None) -> None:
+        registry = registry or default_registry()
         for pc in contract.postconditions:
-            s = pc.selector
-            if pc.provider == "github":
-                if not s.get("repo") or s.get("kind") not in {"issue", "pull_request"}:
-                    raise ValueError(f"compiled GitHub selector is incomplete for {pc.id}")
-                number = s.get("number")
-                if number is not None:
-                    if not isinstance(number, int) or isinstance(number, bool) or number < 1:
-                        raise ValueError(f"compiled GitHub selector has invalid number for {pc.id}")
-                elif not any(
-                    [s.get("title"), s.get("author"), s.get("head_ref") if s.get("kind") == "pull_request" else None]
-                ):
-                    raise ValueError(f"compiled GitHub discovery selector is too weak for {pc.id}")
-            elif pc.provider == "gmail":
-                if not s.get("message_id") and not any([s.get("subject"), s.get("to"), s.get("thread_id")]):
-                    raise ValueError(f"compiled Gmail discovery selector is too weak for {pc.id}")
-            elif pc.provider == "webhook":
-                if not s.get("source") or not s.get("event_type"):
-                    raise ValueError(f"compiled webhook selector is incomplete for {pc.id}")
+            if pc.provider != "unresolved":
+                registry.require(pc.provider).compiler.validate_legacy_selector(pc)
