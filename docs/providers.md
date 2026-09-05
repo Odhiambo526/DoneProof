@@ -192,7 +192,8 @@ Resources: issue, pull_request. Evidence sensitivity: **confidential**.
     ],
     "public_read": true,
     "refresh_required": false,
-    "authorization_origin": "https://github.com"
+    "authorization_origin": "https://github.com",
+    "onboarding_order": 1
   },
   "rate_limit": {
     "concurrency": 8,
@@ -375,7 +376,8 @@ Resources: message. Evidence sensitivity: **restricted**.
     ],
     "public_read": false,
     "refresh_required": true,
-    "authorization_origin": "https://accounts.google.com"
+    "authorization_origin": "https://accounts.google.com",
+    "onboarding_order": 0
   },
   "rate_limit": {
     "concurrency": 4,
@@ -507,7 +509,8 @@ Resources: signed_event. Evidence sensitivity: **restricted**.
     ],
     "public_read": false,
     "refresh_required": false,
-    "authorization_origin": null
+    "authorization_origin": null,
+    "onboarding_order": 100
   },
   "rate_limit": {
     "concurrency": 16,

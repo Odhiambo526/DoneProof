@@ -114,7 +114,8 @@ def register_connection_routes(app):
                 "providers": [{"provider": d.manifest.provider_id,
                     "onboarding_available": service.configured(d.manifest.provider_id),
                     "installation_url": d.installation_url(settings)}
-                    for d in sorted(service.registry, key=lambda d: d.manifest.provider_id) if d.connection_factory]}
+                    for d in sorted(service.registry, key=lambda d: (d.manifest.authentication.onboarding_order, d.manifest.provider_id))
+                    if d.connection_factory]}
 
 
     @app.get("/v1/connections/provider-metadata", tags=["Connections"])

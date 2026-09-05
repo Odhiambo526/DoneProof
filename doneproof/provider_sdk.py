@@ -49,6 +49,7 @@ class Authentication(Declaration):
     public_read: bool = False
     refresh_required: bool = False
     authorization_origin: str | None = None
+    onboarding_order: int = Field(default=100, ge=0, le=1000)
 
     @model_validator(mode="after")
     def fixed_origin(self):

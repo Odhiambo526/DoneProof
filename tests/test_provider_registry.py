@@ -83,6 +83,7 @@ def test_fourth_provider_drives_every_consumer(sdk):
     docs = client.get("/v1/providers", headers=A).json()
     assert docs["sdk_version"] == 1 and docs["providers"][-1]["provider_id"] == "inventory"
     listing = client.get("/v1/connections", headers=ADMIN_A).json()
+    assert [p["provider"] for p in listing["providers"]] == ["gmail", "github", "inventory"]
     assert listing["connections"][0]["provider"] == "inventory"
     assert listing["providers"][-1] == {"provider": "inventory", "onboarding_available": True, "installation_url": None}
     assert client.get("/v1/connections", headers=ADMIN_B).json()["connections"] == []

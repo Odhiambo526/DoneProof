@@ -244,7 +244,7 @@ def provider_definition():
         "discovery": {"supported": True, "identity_field": "number", "identity_schema": {"type": "integer", "minimum": 1, "maximum": 2**53-1},
                       "scope_fields": ("repo", "kind"), "boundary_field": "created_after"},
         "authentication": {"mode": "managed_oauth", "requirements": ("Read-only GitHub App issues and pull_requests permissions on installed repositories",),
-                           "public_read": True, "authorization_origin": "https://github.com"},
+                           "public_read": True, "authorization_origin": "https://github.com", "onboarding_order": 1},
         "rate_limit": {"concurrency": 8, "preflight_concurrency": 4, "attempts": 4, "base_seconds": 1.0, "cap_seconds": 60.0},
         "evidence_sensitivity": "confidential",
         "compiler_instructions": "GitHub discovery requires exact title, repo and kind. Existing issue/PR mutations require transitions. No review approval or code correctness evidence.",

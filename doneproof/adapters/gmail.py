@@ -212,7 +212,7 @@ def provider_definition():
         "discovery": {"supported": True, "identity_field": "message_id", "identity_schema": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,200}$"},
                       "boundary_field": "created_after"},
         "authentication": {"mode": "managed_oauth", "requirements": ("https://www.googleapis.com/auth/gmail.readonly",),
-                           "refresh_required": True, "authorization_origin": "https://accounts.google.com"},
+                           "refresh_required": True, "authorization_origin": "https://accounts.google.com", "onboarding_order": 0},
         "rate_limit": {"concurrency": 4, "preflight_concurrency": 2, "attempts": 4, "base_seconds": 1.0, "cap_seconds": 32.0},
         "evidence_sensitivity": "restricted",
         "compiler_instructions": "Gmail discovery requires BOTH exact subject and recipient; never filter by location. Send requires location=sent, subject equality and recipient containment. No message body, read receipts or business satisfaction evidence.",
