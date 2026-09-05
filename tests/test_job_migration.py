@@ -17,6 +17,7 @@ from tests.test_jobs import Provider, payload
 def test_phase1_data_survives_additive_job_migration(connection_settings, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(store_module, "migrate_jobs", lambda con: None)
+        patch.setattr(store_module, "migrate_recovery", lambda con: None)
         legacy = Store(connection_settings.storage_dsn)
     db = JobStore(legacy)
     if db.pg:

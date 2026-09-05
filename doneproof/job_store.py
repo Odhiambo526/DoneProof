@@ -50,32 +50,35 @@ class JobStore(ConnectionStore):
 
     def create(self, tenant, key, request_hash, contract, baselines, assurance, deadline, callback=None):
         with self.transaction() as con:
-            self.execute(con, "INSERT INTO verification_tenants(tenant_id) VALUES(?) ON CONFLICT DO NOTHING", (tenant,))
-            self.execute(con, "SELECT tenant_id FROM verification_tenants WHERE tenant_id=?" + self.lock(), (tenant,))
-            row = self._row(self.execute(con,
-                "SELECT * FROM verification_jobs WHERE tenant_id=? AND idempotency_hash=?", (tenant, digest(key))))
-            if row:
-                if row["request_hash"] != request_hash:
-                    raise IdempotencyConflict
-                return row, False
-            count = self.execute(con, """SELECT COUNT(*) AS n FROM verification_jobs
-                WHERE tenant_id=? AND finished_at IS NULL AND deadline_at>?""", (tenant, self.now(con))).fetchone()["n"]
-            if count >= 1000:
-                raise QueueFull
-            now, identifier = self.now(con), uuid4().hex
-            job_id = "vj_" + identifier
-            self.execute(con, """INSERT INTO verification_jobs
-                (tenant_id,id,idempotency_hash,request_hash,state,contract_json,baselines_json,assurance_level,
-                 condition_count,created_at,deadline_at,next_run_at,receipt_id,callback_id,callback_fingerprint)
-                VALUES(?,?,?,?,'QUEUED',?,?,?,?,?,?,?,?,?,?)""",
-                (tenant, job_id, digest(key), request_hash, contract.model_dump_json(),
-                 canonical({k: v.model_dump(mode="json") for k, v in baselines.items()}), assurance,
-                 len(contract.postconditions), now, now + deadline, now, "vr_" + identifier,
-                 callback[0] if callback else None, callback[1] if callback else None))
-            self.execute_many(con, """INSERT INTO verification_conditions
-                (tenant_id,job_id,condition_id,ordinal,provider,state,next_attempt_at) VALUES(?,?,?,?,?,'PENDING',?)""",
-                [(tenant, job_id, pc.id, ordinal, pc.provider, now) for ordinal, pc in enumerate(contract.postconditions)])
-            return self.row(con, tenant, job_id), True
+            return self.create_in_transaction(con, tenant, key, request_hash, contract, baselines, assurance, deadline, callback)
+
+    def create_in_transaction(self, con, tenant, key, request_hash, contract, baselines, assurance, deadline, callback=None):
+        self.execute(con, "INSERT INTO verification_tenants(tenant_id) VALUES(?) ON CONFLICT DO NOTHING", (tenant,))
+        self.execute(con, "SELECT tenant_id FROM verification_tenants WHERE tenant_id=?" + self.lock(), (tenant,))
+        row = self._row(self.execute(con,
+            "SELECT * FROM verification_jobs WHERE tenant_id=? AND idempotency_hash=?", (tenant, digest(key))))
+        if row:
+            if row["request_hash"] != request_hash:
+                raise IdempotencyConflict
+            return row, False
+        count = self.execute(con, """SELECT COUNT(*) AS n FROM verification_jobs
+            WHERE tenant_id=? AND finished_at IS NULL AND deadline_at>?""", (tenant, self.now(con))).fetchone()["n"]
+        if count >= 1000:
+            raise QueueFull
+        now, identifier = self.now(con), uuid4().hex
+        job_id = "vj_" + identifier
+        self.execute(con, """INSERT INTO verification_jobs
+            (tenant_id,id,idempotency_hash,request_hash,state,contract_json,baselines_json,assurance_level,
+             condition_count,created_at,deadline_at,next_run_at,receipt_id,callback_id,callback_fingerprint)
+            VALUES(?,?,?,?,'QUEUED',?,?,?,?,?,?,?,?,?,?)""",
+            (tenant, job_id, digest(key), request_hash, contract.model_dump_json(),
+             canonical({k: v.model_dump(mode="json") for k, v in baselines.items()}), assurance,
+             len(contract.postconditions), now, now + deadline, now, "vr_" + identifier,
+             callback[0] if callback else None, callback[1] if callback else None))
+        self.execute_many(con, """INSERT INTO verification_conditions
+            (tenant_id,job_id,condition_id,ordinal,provider,state,next_attempt_at) VALUES(?,?,?,?,?,'PENDING',?)""",
+            [(tenant, job_id, pc.id, ordinal, pc.provider, now) for ordinal, pc in enumerate(contract.postconditions)])
+        return self.row(con, tenant, job_id), True
 
     def idempotent_job(self, tenant, key, request_hash):
         with self.transaction() as con:
@@ -318,6 +321,9 @@ class JobStore(ConnectionStore):
                     {k: ConditionResult.model_validate(v) for k, v in json.loads(current["baselines_json"]).items()})
                 receipt = engine.build_receipt(contract, results, assurance_level=current["assurance_level"],
                     receipt_id=current["receipt_id"], verified_at=receipt.verified_at, duration_ms=receipt.duration_ms)
+            from .recovery_store import RecoveryStore
+            recovery = RecoveryStore(self.store)
+            link = recovery.prepare_publication(con, current, receipt)
             receipt = engine.sign(receipt)
             # Deadline can elapse while CPU work/signing runs; never publish after it.
             now = self.now(con)
@@ -327,6 +333,8 @@ class JobStore(ConnectionStore):
             self.execute(con, """INSERT INTO receipts(receipt_id,contract_id,verdict,body_json,verified_at,receipt_hash,signature,tenant_id)
                 VALUES(?,?,?,?,?,?,?,?)""", (receipt.receipt_id, receipt.contract_id, receipt.verdict.value,
                     receipt.model_dump_json(), receipt.verified_at.isoformat(), receipt.receipt_hash, receipt.signature, job["tenant_id"]))
+            if link:
+                recovery.finish_publication(con, current, receipt, link)
             if changed:
                 for result in receipt.results:
                     self.execute(con, "UPDATE verification_conditions SET result_json=? WHERE tenant_id=? AND job_id=? AND condition_id=?",

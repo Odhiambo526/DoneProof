@@ -12,6 +12,7 @@ from typing import Any
 from .connection_store import migrate as migrate_connections
 from .domain import CompletionContract, VerificationReceipt
 from .job_schema import migrate as migrate_jobs
+from .recovery_schema import migrate as migrate_recovery
 
 
 def _is_postgres(dsn: str) -> bool:
@@ -146,6 +147,7 @@ class Store:
 
             migrate_connections(con)
             migrate_jobs(con)
+            migrate_recovery(con)
 
     def _migrate_contract_primary_key(self, con: sqlite3.Connection) -> None:
         """Upgrade legacy global contract IDs to tenant-scoped IDs without losing data."""
@@ -266,6 +268,11 @@ class Store:
                 cur.execute(
                     "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
                     (3, datetime.now(timezone.utc).isoformat()),
+                )
+                migrate_recovery(con)
+                cur.execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
+                    (4, datetime.now(timezone.utc).isoformat()),
                 )
 
     # ------------------------------- Shared -------------------------------
@@ -529,22 +536,15 @@ class Store:
             payload_hash,
             now,
         )
-        if self.backend == "sqlite":
-            with self._connect() as con:
-                cur = con.execute(
-                    "INSERT OR IGNORE INTO evidence_events(event_id,tenant_id,source,event_type,object_id,occurred_at,payload_json,payload_hash,received_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                    values,
-                )
-                inserted = cur.rowcount == 1
-        else:
-            with self._pg_connect() as con:
-                with con.cursor() as cur:
-                    cur.execute(
-                        """INSERT INTO evidence_events(event_id,tenant_id,source,event_type,object_id,occurred_at,payload_json,payload_hash,received_at)
-                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (event_id) DO NOTHING""",
-                        values,
-                    )
-                    inserted = cur.rowcount == 1
+        from .recovery_store import RecoveryStore
+        db = RecoveryStore(self)
+        with db.transaction() as con:
+            cur = db.execute(con, """INSERT INTO evidence_events
+                (event_id,tenant_id,source,event_type,object_id,occurred_at,payload_json,payload_hash,received_at)
+                VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(event_id) DO NOTHING""", values)
+            inserted = cur.rowcount == 1
+            if inserted:
+                db.enqueue_event(con, tenant_id, source, event_type, object_id, event_id, payload)
         return inserted, payload_hash
 
     def find_events(

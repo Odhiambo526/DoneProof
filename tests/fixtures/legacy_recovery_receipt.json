@@ -1,0 +1,81 @@
+{
+  "contract": {
+    "schema_version": "1.0",
+    "id": "cc_682662f8b5fb4b99",
+    "task": "Verify a durable outcome",
+    "assumptions": [],
+    "task_started_at": "2026-09-05T10:04:05.957431Z",
+    "postconditions": [
+      {
+        "id": "p0",
+        "description": "Expected authoritative state",
+        "provider": "github",
+        "selector": {
+          "number": 1
+        },
+        "predicate": {
+          "op": "eq",
+          "path": "ok",
+          "expected": true
+        },
+        "required": true,
+        "require_change": false
+      }
+    ],
+    "created_at": "2026-09-05T10:04:05.957431Z"
+  },
+  "receipt": {
+    "schema_version": "1.0",
+    "assurance_level": "submitted",
+    "receipt_id": "vr_0339fd7d324f40e3939d",
+    "contract_id": "cc_682662f8b5fb4b99",
+    "contract_hash": "1d10491cdf283e5f80d12dd870481c42d76db2c64c2297484ec80851c8fc91d1",
+    "task": "Verify a durable outcome",
+    "verdict": "FAILED",
+    "summary": {
+      "total": 1,
+      "required": 1,
+      "passed": 0,
+      "failed": 1,
+      "unknown": 0,
+      "providers": [
+        "github"
+      ]
+    },
+    "results": [
+      {
+        "id": "p0",
+        "description": "Expected authoritative state",
+        "required": true,
+        "status": "FAIL",
+        "predicate": {
+          "op": "eq",
+          "path": "ok",
+          "expected": true
+        },
+        "evidence": {
+          "provider": "github",
+          "selector": {
+            "number": 1
+          },
+          "observed": false,
+          "source_url": null,
+          "fetched_at": "2026-09-05T10:04:05.959507Z",
+          "note": null
+        },
+        "reason": "observed=False; expected eq True",
+        "transition_required": false,
+        "baseline_status": null,
+        "baseline_observed": null,
+        "latency_ms": 0.17
+      }
+    ],
+    "verified_at": "2026-09-05T10:04:05.960508Z",
+    "duration_ms": 0.96,
+    "receipt_hash": "44f8b51863e7c74abb675f0e87eab9c92e1c82e92565d959d18c58fdbf7d09f1",
+    "signature_alg": "Ed25519",
+    "key_id": "9fbf6d4aa875060c",
+    "public_key": "vOYkB7/fKkWLLxEP5pPtKPEuAnAgXbCmd9O196hea6A=",
+    "signature": "TZgU76Weiezb4s7YJ5mr6PE3w8tpioCWWtNA02Jps1lQyMi4kwQlkSLNkbJ5nXVVBXWqgcD0ouJxXRxSfaMjBw=="
+  }
+}

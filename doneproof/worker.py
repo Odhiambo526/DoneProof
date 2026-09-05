@@ -10,15 +10,17 @@ from .job_callbacks import CallbackRegistry
 from .job_models import TERMINAL
 from .job_store import JobStore, evaluation_inputs
 from .pipeline import ObservationRecord
+from .recovery_store import RecoveryStore
 from .retries import POLICIES, TransientObservationError
 
 logger = logging.getLogger("doneproof.worker")
 
 
 class VerificationWorker:
-    def __init__(self, store, engine, callbacks=None, *, batch_size=16, callback_transport=None):
+    def __init__(self, store, engine, callbacks=None, *, batch_size=16, callback_transport=None, recovery=None):
         self.db = JobStore(store)
         self.engine = engine
+        self.recovery = recovery or RecoveryStore(store)
         self.callbacks = callbacks or CallbackRegistry({})
         self.batch_size = max(1, min(batch_size, 64))
         # A whole batch is concurrent and bounded by one observation timeout. The grace covers DB/CPU work.
@@ -84,6 +86,9 @@ class VerificationWorker:
             self.db.fail_job(job)
         return True
 
+    async def recovery_tick(self):
+        return await asyncio.to_thread(self.recovery.dispatch_event)
+
     async def callback_tick(self):
         row = self.db.claim_callback()
         if not row:
@@ -116,11 +121,12 @@ class VerificationWorker:
         async with asyncio.TaskGroup() as group:
             group.create_task(self._loop(self.tick))
             group.create_task(self._loop(self.callback_tick))
+            group.create_task(self._loop(self.recovery_tick))
 
 
 async def serve():
     from .app import app
-    worker = VerificationWorker(app.state.store, app.state.engine, app.state.job_callbacks)
+    worker = VerificationWorker(app.state.store, app.state.engine, app.state.job_callbacks, recovery=app.state.recovery)
     task = asyncio.create_task(worker.run())
     loop = asyncio.get_running_loop()
     for name in (signal.SIGINT, signal.SIGTERM):

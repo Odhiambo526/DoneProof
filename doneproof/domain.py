@@ -5,7 +5,9 @@ from enum import Enum
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_serializer, model_validator
+
+from .recovery_models import RecoveryInfo, Remediation
 
 ProviderName = Literal["github", "gmail", "webhook", "unresolved"]
 AssuranceLevel = Literal["registered", "submitted"]
@@ -133,6 +135,37 @@ class VerificationReceipt(BaseModel):
     key_id: str = ""
     public_key: str = ""
     signature: str = ""
+    remediation: list[Remediation] = Field(default_factory=list)
+    previous_receipt_id: str | None = None
+    previous_receipt_hash: str | None = None
+    recovery: RecoveryInfo | None = None
+
+    @model_validator(mode="after")
+    def validate_recovery_version(self):
+        if self.schema_version not in {"1.0", "1.1"}:
+            raise ValueError("Unsupported receipt schema")
+        if self.schema_version == "1.0" and (
+                self.remediation or self.recovery or self.previous_receipt_id or self.previous_receipt_hash):
+            raise ValueError("Recovery fields require receipt schema 1.1")
+        if self.schema_version == "1.1":
+            if self.recovery is None:
+                raise ValueError("Missing recovery metadata")
+            if bool(self.previous_receipt_id) != bool(self.previous_receipt_hash):
+                raise ValueError("Incomplete receipt link")
+            if bool(self.previous_receipt_id) != (self.recovery.attempt > 0):
+                raise ValueError("Invalid recovery attempt")
+            if not self.previous_receipt_id and self.recovery.chain_id != self.receipt_id:
+                raise ValueError("Invalid root receipt")
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize_version(self, handler):
+        data = handler(self)
+        if self.schema_version == "1.0":
+            # Preserve the exact canonical payload of previously signed 1.0 receipts.
+            for key in ("remediation", "previous_receipt_id", "previous_receipt_hash", "recovery"):
+                data.pop(key, None)
+        return data
 
 
 class CompileRequest(BaseModel):
