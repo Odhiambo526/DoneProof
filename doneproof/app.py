@@ -12,13 +12,16 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from . import __version__
 from .adapters.base import ProviderAdapter
 from .adapters.webhook import WebhookEvidenceAdapter
-from .compiler import AstraCompiler
+from .compilation import ContractCompiler
+from .compilation_models import CompilationResult
 from .config import Settings, get_settings
 from .connection_api import register_connection_routes
 from .connections import ConnectionService, ManagedAdapter
@@ -40,6 +43,7 @@ from .job_callbacks import CallbackRegistry
 from .job_store import JobStore
 from .limits import SlidingWindowLimiter
 from .security import TenantContext, require_tenant
+from .selector_resolution import SelectorResolver
 from .signing import ReceiptSigner
 from .store import Store
 from .web import CONSOLE_HTML, LANDING_HTML, certificate_html
@@ -74,7 +78,6 @@ def create_app(
     app.state.settings = settings
     app.state.store = Store(settings.storage_dsn)
     app.state.signer = ReceiptSigner(settings)
-    app.state.compiler = AstraCompiler(settings)
     app.state.limiter = SlidingWindowLimiter(settings.requests_per_minute)
     app.state.connections = ConnectionService(app.state.store, settings)
     adapters = {
@@ -85,9 +88,18 @@ def create_app(
     if adapter_overrides:
         adapters.update(adapter_overrides)
     app.state.engine = VerificationEngine(adapters, app.state.signer, settings.verification_timeout_seconds)
+    app.state.compiler = ContractCompiler(settings, SelectorResolver(adapters, app.state.connections, settings))
     app.state.jobs = JobStore(app.state.store)
     app.state.job_callbacks = CallbackRegistry(settings.job_callbacks)
     register_job_routes(app)
+
+    @app.exception_handler(RequestValidationError)
+    async def safe_compilation_validation(request, exc):
+        if request.url.path.startswith("/v2/"):
+            # Pydantic errors otherwise echo input values, which may contain credentials.
+            return JSONResponse(status_code=422, content={"detail": "Invalid compilation request."},
+                                headers={"Cache-Control": "no-store"})
+        return await request_validation_exception_handler(request, exc)
 
     if settings.cors_origins:
         app.add_middleware(
@@ -117,7 +129,7 @@ def create_app(
         )
         started = time.perf_counter()
         if (
-            request.url.path.startswith("/v1/")
+            request.url.path.startswith(("/v1/", "/v2/"))
             and not request.url.path.startswith("/v1/webhooks/")
             and request.url.path != "/v1/signing-key"
         ):
@@ -158,7 +170,7 @@ def create_app(
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        response.headers["Cache-Control"] = "no-store" if request.url.path.startswith(("/v1", "/connections")) else "public, max-age=300"
+        response.headers["Cache-Control"] = "no-store" if request.url.path.startswith(("/v1", "/v2", "/connections")) else "public, max-age=300"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
         )
@@ -244,19 +256,42 @@ def create_app(
     @app.post("/v1/contracts/compile", response_model=CompletionContract, tags=["Contracts"])
     async def compile_contract(req: CompileRequest, ctx: TenantContext = Depends(require_tenant)):
         try:
-            contract = await app.state.compiler.compile(req.task, req.context, req.task_started_at)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+            result = await app.state.compiler.compile(req.task, req.context, ctx.tenant_id, req.task_started_at)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Contract compiler could not produce a valid completion contract.",
             ) from exc
+        if result.contract is None:
+            unavailable = not settings.openai_api_key or any(
+                p.code in {"model_unavailable", "compilation_deadline"} for p in result.clarification_requirements)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE if unavailable else status.HTTP_502_BAD_GATEWAY,
+                detail="Contract compilation requires clarification. Use /v2/contracts/compile for structured requirements.")
+        contract = result.contract
         app.state.store.save_contract(ctx.tenant_id, contract)
         app.state.store.audit(
             ctx.tenant_id, "contract.compiled", "contract", contract.id, {"conditions": len(contract.postconditions)}
         )
         return contract
+
+    @app.post("/v2/contracts/compile", response_model=CompilationResult, tags=["Contracts"])
+    async def compile_contract_v2(req: CompileRequest, ctx: TenantContext = Depends(require_tenant)):
+        try:
+            result = await app.state.compiler.compile(req.task, req.context, ctx.tenant_id, req.task_started_at)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="Contract compilation is temporarily unavailable.") from exc
+        if result.contract is not None:
+            app.state.store.save_contract(ctx.tenant_id, result.contract)
+            app.state.store.audit(ctx.tenant_id, "contract.compiled", "contract", result.contract.id,
+                {"conditions": len(result.contract.postconditions), "compiler_version": "2.0",
+                 "deterministic": result.deterministic})
+        return result
+
+    @app.get("/v2/contracts/capabilities", tags=["Contracts"])
+    async def compilation_capabilities(ctx: TenantContext = Depends(require_tenant)):
+        return {"schema_version": "2.0", "deterministic": True,
+                "model": "available" if settings.openai_api_key else "configuration_required",
+                "providers": await app.state.compiler.resolver.capabilities(ctx.tenant_id)}
 
     @app.post("/v1/runs", response_model=CompletionContract, tags=["Runs"])
     async def register_run(req: RegisterRunRequest, ctx: TenantContext = Depends(require_tenant)):

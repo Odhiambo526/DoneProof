@@ -110,6 +110,8 @@ class GitHubAdapter(ProviderAdapter):
         candidates: list[dict[str, Any]] = []
 
         async with self._client() as client:
+            complete = False
+            malformed = False
             for page in range(1, _MAX_DISCOVERY_PAGES + 1):
                 params: dict[str, Any] = {
                     "state": "all",
@@ -143,6 +145,7 @@ class GitHubAdapter(ProviderAdapter):
                         continue
                     created_at = _parse_time(item.get("created_at"))
                     if created_at is None:
+                        malformed = True
                         continue
                     if created_at < created_after:
                         reached_time_bound = True
@@ -160,8 +163,12 @@ class GitHubAdapter(ProviderAdapter):
                     candidates.append(item)
 
                 if len(items) < 100 or reached_time_bound:
+                    complete = True
                     break
 
+        if not complete or malformed:
+            return ProviderObservation(None, source_url=url, indeterminate=True,
+                note="GitHub discovery was incomplete; absence and uniqueness cannot be established.")
         if not candidates:
             return ProviderObservation(
                 state=None,

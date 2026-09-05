@@ -91,14 +91,19 @@ class GmailAdapter(ProviderAdapter):
                 )
             r.raise_for_status()
             refs = r.json().get("messages", []) or []
+            if r.json().get("nextPageToken") or len(refs) > 100:
+                return ProviderObservation(None, source_url=url, indeterminate=True,
+                    note="Gmail discovery exceeded its search budget; absence and uniqueness cannot be established.")
             candidates: list[dict[str, Any]] = []
             for ref in refs[:100]:
                 mid = ref.get("id")
                 if not mid:
-                    continue
+                    return ProviderObservation(None, source_url=url, indeterminate=True,
+                        note="Gmail discovery returned incomplete resource identifiers.")
                 detail = await resilient_get(client, f"{self.API}/messages/{mid}", params={"format": "full"})
                 if detail.status_code != 200:
-                    continue
+                    return ProviderObservation(None, source_url=url, indeterminate=True,
+                        note="Gmail discovery could not read every candidate; absence and uniqueness are unknown.")
                 normalized = self._normalize(detail.json())
                 if datetime.fromisoformat(normalized["internal_date"].replace("Z", "+00:00")) < created_after:
                     continue

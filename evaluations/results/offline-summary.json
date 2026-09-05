@@ -1,0 +1,90 @@
+{
+  "evaluated_at": "2026-09-05T09:10:47.046403+00:00",
+  "python": "3.12.14",
+  "summary": {
+    "mode": "offline",
+    "provider_environment": "deterministic authoritative adapter fixtures; no live provider traffic",
+    "model_environment": "model disabled; unsupported language returns clarification",
+    "tasks": 125,
+    "provider_counts": {
+      "github": 44,
+      "gmail": 41,
+      "webhook": 40
+    },
+    "valid_contract_rate": {
+      "numerator": 79,
+      "denominator": 125,
+      "rate": 0.632
+    },
+    "valid_contract_recall": {
+      "numerator": 79,
+      "denominator": 86,
+      "rate": 0.918605
+    },
+    "selector_resolution_rate": {
+      "numerator": 32,
+      "denominator": 40,
+      "rate": 0.8
+    },
+    "selector_executable_rate": {
+      "numerator": 79,
+      "denominator": 87,
+      "rate": 0.908046
+    },
+    "selector_checks": {
+      "resolved": 32,
+      "deferred": 47,
+      "missing": 2,
+      "ambiguous": 2,
+      "unavailable": 4
+    },
+    "false_certifiable_contract_rate": {
+      "numerator": 0,
+      "denominator": 79,
+      "rate": 0.0
+    },
+    "unnecessary_unknown_rate": {
+      "numerator": 0,
+      "denominator": 79,
+      "rate": 0.0
+    },
+    "clarification_rate": {
+      "numerator": 46,
+      "denominator": 125,
+      "rate": 0.368
+    },
+    "status_accuracy": {
+      "numerator": 118,
+      "denominator": 125,
+      "rate": 0.944
+    },
+    "negative_worlds_checked": 158,
+    "compilation_latency_ms": {
+      "p50": 0.947,
+      "p95": 2.447,
+      "max": 7.621
+    },
+    "token_usage": {
+      "input_tokens": 0,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 0,
+      "reasoning_tokens": 0,
+      "complete": true,
+      "model_calls": 0
+    },
+    "estimated_token_cost_usd": 0.0,
+    "pricing": {
+      "as_of": "2026-09-05",
+      "model": "gpt-6-astra",
+      "per_million": {
+        "input": 10,
+        "cached_input": 1,
+        "cache_write": 12.5,
+        "output": 50
+      },
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "note": "Standard short-context list-price estimate; not an invoice. No API calls means zero token cost."
+    }
+  }
+}
