@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Any
 
 from .adapters.base import ObservationContext, ProviderAdapter
@@ -17,7 +18,9 @@ from .domain import (
     VerificationReceipt,
     VerificationSummary,
 )
+from .pipeline import ObservationRecord
 from .predicates import evaluate
+from .retries import TransientObservationError, durable_observation, transient_exception
 from .security import sanitize
 from .signing import ReceiptSigner
 
@@ -25,136 +28,106 @@ logger = logging.getLogger("doneproof.verification")
 
 
 class VerificationEngine:
-    def __init__(
-        self,
-        adapters: dict[str, ProviderAdapter],
-        signer: ReceiptSigner,
-        timeout_seconds: float = 15.0,
-    ):
+    def __init__(self, adapters: dict[str, ProviderAdapter], signer: ReceiptSigner,
+                 timeout_seconds: float = 15.0, provider_concurrency: dict[str, int] | None = None):
         self.adapters = adapters
         self.signer = signer
         self.timeout_seconds = timeout_seconds
+        self.provider_concurrency = provider_concurrency or {"github": 8, "gmail": 4, "webhook": 16, "unresolved": 16}
 
-    async def _verify_one(self, pc, contract: CompletionContract, tenant_id: str, capture=False) -> ConditionResult:
-        started = time.perf_counter()
-        adapter = self.adapters.get(pc.provider)
+    def selector_for(self, pc, contract):
         selector = dict(pc.selector)
         if pc.provider in {"github", "gmail", "webhook"} and self._is_discovery(pc.provider, selector):
-            # The contract's trusted run boundary always wins. Never accept a
-            # model/caller supplied earlier timestamp for discovery.
             selector["created_after"] = contract.task_started_at.isoformat()
-        safe_selector = sanitize(selector)
-        context = ObservationContext(
-            tenant_id=tenant_id,
-            contract_id=contract.id,
-            task_started_at=contract.task_started_at.isoformat(),
-            condition_id=pc.id,
-            require_connection_binding=pc.require_change,
-            capture_connection_binding=capture,
-        )
+        return selector
+
+    async def observe(self, pc, contract, tenant_id, *, capture=False, durable=False) -> ObservationRecord:
+        started = time.perf_counter()
+        adapter = self.adapters.get(pc.provider)
         if adapter is None:
-            return self._result_unknown(pc, safe_selector, "Provider is not available in this deployment.", started)
+            return ObservationRecord(indeterminate=True, note="Provider is not available in this deployment.")
+        context = ObservationContext(tenant_id=tenant_id, contract_id=contract.id,
+            task_started_at=contract.task_started_at.isoformat(), condition_id=pc.id,
+            require_connection_binding=pc.require_change, capture_connection_binding=capture)
+        token = durable_observation.set(durable)
         try:
-            observation = await asyncio.wait_for(adapter.observe(selector, context), timeout=self.timeout_seconds)
-            latency = (time.perf_counter() - started) * 1000
-            if observation.indeterminate:
-                return ConditionResult(
-                    id=pc.id,
-                    description=pc.description,
-                    required=pc.required,
-                    status=ConditionStatus.UNKNOWN,
-                    predicate=pc.predicate,
-                    evidence=Evidence(
-                        provider=pc.provider,
-                        selector=safe_selector,
-                        observed=sanitize(observation.state),
-                        source_url=observation.source_url,
-                        note=observation.note,
-                    ),
-                    reason=observation.note or "Authoritative state could not be established.",
-                    transition_required=pc.require_change,
-                    latency_ms=round(latency, 2),
-                )
-            status, reason, observed = evaluate(observation.state, pc.predicate)
-            return ConditionResult(
-                id=pc.id,
-                description=pc.description,
-                required=pc.required,
-                status=status,
-                predicate=pc.predicate,
-                evidence=Evidence(
-                    provider=pc.provider,
-                    selector=safe_selector,
-                    observed=sanitize(observed),
-                    source_url=observation.source_url,
-                    note=observation.note,
-                ),
-                reason=reason,
-                transition_required=pc.require_change,
-                latency_ms=round(latency, 2),
-            )
+            observation = await asyncio.wait_for(
+                adapter.observe(self.selector_for(pc, contract), context), timeout=self.timeout_seconds)
+            return ObservationRecord(state=observation.state, source_url=observation.source_url,
+                note=observation.note, indeterminate=observation.indeterminate, authority=observation.authority,
+                latency_ms=round((time.perf_counter() - started) * 1000, 2))
+        except TransientObservationError:
+            if durable:
+                raise
+            return ObservationRecord(indeterminate=True, note="Provider verification was unavailable or returned an invalid response.")
         except asyncio.TimeoutError:
-            logger.warning(
-                "verification_timeout provider=%s contract_id=%s condition_id=%s",
-                pc.provider,
-                contract.id,
-                pc.id,
-            )
-            return self._result_unknown(
-                pc, safe_selector, "Verification timed out before authoritative state was established.", started
-            )
+            if durable:
+                raise TransientObservationError("provider_timeout") from None
+            logger.warning("verification_timeout provider=%s contract_id=%s condition_id=%s", pc.provider, contract.id, pc.id)
+            return ObservationRecord(indeterminate=True, note="Verification timed out before authoritative state was established.")
         except Exception as exc:
-            logger.warning(
-                "verification_provider_error provider=%s contract_id=%s condition_id=%s error_type=%s",
-                pc.provider,
-                contract.id,
-                pc.id,
-                type(exc).__name__,
-            )
-            return self._result_unknown(
-                pc, safe_selector, "Provider verification was unavailable or returned an invalid response.", started
-            )
+            if durable and transient_exception(exc):
+                raise TransientObservationError() from None
+            logger.warning("verification_provider_error provider=%s contract_id=%s condition_id=%s error_type=%s",
+                           pc.provider, contract.id, pc.id, type(exc).__name__)
+            return ObservationRecord(indeterminate=True, note="Provider verification was unavailable or returned an invalid response.")
+        finally:
+            durable_observation.reset(token)
+
+    def observation_is_current(self, pc, observation, tenant_id):
+        adapter = self.adapters.get(pc.provider)
+        return adapter is None or adapter.observation_is_current(observation.authority, tenant_id)
+
+    def evaluate_observation(self, pc, contract, observation: ObservationRecord) -> ConditionResult:
+        observation = observation.checkpoint()
+        if observation.predicate_is_redacted(pc.predicate.path):
+            status, reason, observed = (ConditionStatus.UNKNOWN,
+                "The predicate depends on sensitive state that cannot be retained as evidence.", None)
+        elif observation.indeterminate:
+            status, reason, observed = (ConditionStatus.UNKNOWN,
+                observation.note or "Authoritative state could not be established.", observation.state)
+        else:
+            status, reason, observed = evaluate(observation.state, pc.predicate)
+        return ConditionResult(id=pc.id, description=pc.description, required=pc.required,
+            status=status, predicate=pc.predicate,
+            evidence=Evidence(provider=pc.provider, selector=sanitize(self.selector_for(pc, contract)),
+                observed=sanitize(observed), source_url=observation.source_url,
+                note=observation.note, fetched_at=observation.fetched_at),
+            reason=reason, transition_required=pc.require_change, latency_ms=observation.latency_ms)
+
+    async def _verify_one(self, pc, contract: CompletionContract, tenant_id: str, capture=False) -> ConditionResult:
+        observed = await self.observe(pc, contract, tenant_id, capture=capture)
+        return self.evaluate_observation(pc, contract, observed)
 
     def _result_unknown(self, pc, selector: dict[str, Any], reason: str, started: float) -> ConditionResult:
-        return ConditionResult(
-            id=pc.id,
-            description=pc.description,
-            required=pc.required,
-            status=ConditionStatus.UNKNOWN,
-            predicate=pc.predicate,
+        return ConditionResult(id=pc.id, description=pc.description, required=pc.required,
+            status=ConditionStatus.UNKNOWN, predicate=pc.predicate,
             evidence=Evidence(provider=pc.provider, selector=selector, note=reason),
-            reason=reason,
-            transition_required=pc.require_change,
-            latency_ms=round((time.perf_counter() - started) * 1000, 2),
-        )
+            reason=reason, transition_required=pc.require_change,
+            latency_ms=round((time.perf_counter() - started) * 1000, 2))
 
     @staticmethod
-    def _is_discovery(provider: str, selector: dict[str, Any]) -> bool:
+    def _is_discovery(provider, selector):
         if provider == "github":
             return selector.get("number") is None
         if provider == "gmail":
             return selector.get("message_id") is None
-        if provider == "webhook":
-            return True
-        return False
+        return provider == "webhook"
+
+    async def _conditions(self, targets, contract, tenant_id, capture=False):
+        limits = {name: asyncio.Semaphore(limit) for name, limit in self.provider_concurrency.items()}
+        async def one(pc):
+            async with limits[pc.provider]:
+                return await self._verify_one(pc, contract, tenant_id, capture=capture)
+        return list(await asyncio.gather(*(one(pc) for pc in targets)))
 
     async def snapshot(self, contract: CompletionContract, tenant_id: str = "default") -> list[ConditionResult]:
-        targets = [pc for pc in contract.postconditions if pc.require_change]
-        if not targets:
-            return []
-        return list(await asyncio.gather(*(self._verify_one(pc, contract, tenant_id, capture=True) for pc in targets)))
+        return await self._conditions([pc for pc in contract.postconditions if pc.require_change],
+                                      contract, tenant_id, capture=True)
 
-    async def verify(
-        self,
-        contract: CompletionContract,
-        tenant_id: str = "default",
-        assurance_level: str = "submitted",
-        baselines: dict[str, ConditionResult] | None = None,
-    ) -> VerificationReceipt:
-        started = time.perf_counter()
-        results = list(
-            await asyncio.gather(*(self._verify_one(pc, contract, tenant_id) for pc in contract.postconditions))
-        )
+    def evaluate_transitions(self, contract, results, assurance_level="submitted", baselines=None):
+        results = [result.model_copy(deep=True) for result in results]
+
         baseline_map = baselines or {}
         pc_by_id = {pc.id: pc for pc in contract.postconditions}
         for result in results:
@@ -180,23 +153,35 @@ class VerificationEngine:
             elif result.status == ConditionStatus.PASS and baseline.status == ConditionStatus.FAIL:
                 result.reason = "Transition verified: pre-execution state did not satisfy the condition and post-execution state does."
                 result.evidence.note = (result.evidence.note + " " if result.evidence.note else "") + result.reason
-        contract_payload = json.dumps(
-            contract.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode()
-        receipt = VerificationReceipt(
-            assurance_level=assurance_level,
-            contract_id=contract.id,
-            contract_hash=hashlib.sha256(contract_payload).hexdigest(),
-            task=contract.task,
-            verdict=self._verdict(results),
-            summary=self._summary(results),
-            results=results,
-            duration_ms=round((time.perf_counter() - started) * 1000, 2),
-        )
+        return results
+
+
+    def build_receipt(self, contract, results, *, assurance_level="submitted", duration_ms=0.0,
+                      receipt_id: str | None = None, verified_at: datetime | None = None):
+        payload = json.dumps(contract.model_dump(mode="json"), sort_keys=True, separators=(",", ":"),
+                             ensure_ascii=False).encode()
+        fields = {}
+        if receipt_id is not None:
+            fields["receipt_id"] = receipt_id
+        if verified_at is not None:
+            fields["verified_at"] = verified_at
+        return VerificationReceipt(assurance_level=assurance_level, contract_id=contract.id,
+            contract_hash=hashlib.sha256(payload).hexdigest(), task=contract.task,
+            verdict=self._verdict(results), summary=self._summary(results), results=results,
+            duration_ms=round(duration_ms, 2), **fields)
+
+    def sign(self, receipt):
         return self.signer.sign(receipt)
+
+    async def verify(self, contract: CompletionContract, tenant_id: str = "default",
+                     assurance_level: str = "submitted", baselines=None):
+        started = time.perf_counter()
+        results = await self._conditions(contract.postconditions, contract, tenant_id)
+        results = self.evaluate_transitions(contract, results, assurance_level, baselines)
+        receipt = self.build_receipt(contract, results, assurance_level=assurance_level,
+                                     duration_ms=(time.perf_counter() - started) * 1000)
+        return self.sign(receipt)
+
 
     @staticmethod
     def _summary(results: list[ConditionResult]) -> VerificationSummary:
@@ -223,3 +208,4 @@ class VerificationEngine:
         if passes and fails:
             return Verdict.PARTIAL
         return Verdict.UNKNOWN
+

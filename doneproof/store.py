@@ -11,6 +11,7 @@ from typing import Any
 
 from .connection_store import migrate as migrate_connections
 from .domain import CompletionContract, VerificationReceipt
+from .job_schema import migrate as migrate_jobs
 
 
 def _is_postgres(dsn: str) -> bool:
@@ -144,6 +145,7 @@ class Store:
             )
 
             migrate_connections(con)
+            migrate_jobs(con)
 
     def _migrate_contract_primary_key(self, con: sqlite3.Connection) -> None:
         """Upgrade legacy global contract IDs to tenant-scoped IDs without losing data."""
@@ -259,6 +261,11 @@ class Store:
                 cur.execute(
                     "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
                     (2, datetime.now(timezone.utc).isoformat()),
+                )
+                migrate_jobs(con)
+                cur.execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
+                    (3, datetime.now(timezone.utc).isoformat()),
                 )
 
     # ------------------------------- Shared -------------------------------

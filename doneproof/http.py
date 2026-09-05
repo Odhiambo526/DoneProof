@@ -5,27 +5,37 @@ from typing import Any
 
 import httpx
 
-_RETRYABLE = {429, 500, 502, 503, 504}
+from .retries import (
+    RetryPolicy,
+    TransientObservationError,
+    durable_observation,
+    transient_exception,
+    transient_response,
+)
 
 
 async def resilient_get(client: httpx.AsyncClient, url: str, *, attempts: int = 3, **kwargs: Any) -> httpx.Response:
-    last: httpx.Response | None = None
-    for attempt in range(attempts):
+    durable = durable_observation.get()
+    policy = RetryPolicy(attempts, 0.15, 2.0)
+    for attempt in range(1, (1 if durable else attempts) + 1):
         try:
             response = await client.get(url, **kwargs)
-        except (httpx.ConnectError, httpx.ReadTimeout):
-            if attempt == attempts - 1:
+        except httpx.HTTPError as exc:
+            if not transient_exception(exc):
                 raise
-            await asyncio.sleep(0.15 * (2**attempt))
+            if durable:
+                raise TransientObservationError("provider_network_error") from None
+            if attempt == attempts:
+                raise
+            await asyncio.sleep(policy.delay(attempt))
             continue
-        last = response
-        if response.status_code not in _RETRYABLE or attempt == attempts - 1:
+        failure = transient_response(response)
+        if failure is None:
             return response
-        retry_after = response.headers.get("Retry-After")
-        try:
-            delay = min(float(retry_after), 2.0) if retry_after else 0.15 * (2**attempt)
-        except ValueError:
-            delay = 0.15 * (2**attempt)
-        await asyncio.sleep(delay)
-    assert last is not None
-    return last
+        if durable:
+            raise failure
+        if attempt == attempts:
+            return response
+        await asyncio.sleep(policy.delay(attempt, failure.retry_after))
+    raise RuntimeError("Invalid retry attempt limit")
+

@@ -74,6 +74,18 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/doneproof_test
         run: pytest -q
+      - name: Comparable orchestration benchmarks
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/doneproof_test
+        run: |
+          python benchmarks/benchmark_orchestration.py --mode baseline --repeats 10 --output benchmarks/results/ci-before.json
+          python benchmarks/benchmark_orchestration.py --mode sync --repeats 10 --output benchmarks/results/ci-after-sync.json
+          python benchmarks/benchmark_orchestration.py --mode durable --postgres --repeats 10 --output benchmarks/results/ci-after-postgres.json
+      - name: Save benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: orchestration-benchmarks
+          path: benchmarks/results/ci-*.json
 
   production-smoke:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'

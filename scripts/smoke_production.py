@@ -68,6 +68,9 @@ def main() -> int:
 
     status, _, _ = fetch(base, "/v1/overview")
     assert status == 401, f"protected route without workspace key returned HTTP {status}"
+    for path in ("/v1/jobs/vj_smoke", "/v1/jobs/vj_smoke/conditions", "/v1/jobs/vj_smoke/wait"):
+        status, _, _ = fetch(base, path)
+        assert status == 401, f"verification job route without workspace key returned HTTP {status}"
 
     status, _, _ = fetch(base, "/v1/connections")
     assert status == 401, f"connection management without administrator key returned HTTP {status}"

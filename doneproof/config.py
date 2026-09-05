@@ -83,6 +83,7 @@ class Settings:
     github_client_secret: str | None = field(default=None, repr=False)
     github_app_slug: str | None = None
     legacy_connection_tenant: str | None = None
+    job_callbacks: dict[str, dict[str, dict[str, str]]] = field(default_factory=dict, repr=False)
 
     @property
     def storage_dsn(self) -> str:
@@ -170,4 +171,5 @@ def get_settings() -> Settings:
         github_client_secret=os.getenv("DONEPROOF_GITHUB_CLIENT_SECRET"),
         github_app_slug=os.getenv("DONEPROOF_GITHUB_APP_SLUG"),
         legacy_connection_tenant=os.getenv("DONEPROOF_LEGACY_CONNECTION_TENANT"),
+        job_callbacks=_json("DONEPROOF_JOB_CALLBACKS_JSON", {}),
     )

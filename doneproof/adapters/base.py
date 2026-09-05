@@ -21,9 +21,13 @@ class ProviderObservation:
     source_url: str | None = None
     note: str | None = None
     indeterminate: bool = False
+    authority: dict[str, Any] | None = None
 
 
 class ProviderAdapter(ABC):
+    def observation_is_current(self, authority: dict[str, Any] | None, tenant_id: str) -> bool:
+        return True
+
     @abstractmethod
     async def observe(self, selector: dict[str, Any], context: ObservationContext) -> ProviderObservation:
         raise NotImplementedError

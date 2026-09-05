@@ -4,6 +4,8 @@
 
 Managed Gmail/GitHub onboarding is available through **Assurance console → Connection Settings**. See [managed connection setup, APIs and migration](docs/managed-connections.md) for operator configuration and security boundaries.
 
+Durable verification is available through `/v1/jobs`, with a separate PostgreSQL-backed worker. The synchronous API remains available. See [job APIs, retry/recovery semantics and deployment](docs/durable-verification.md).
+
 AI agents can say a task is complete. DoneProof checks the external system and determines whether the requested outcome is actually true.
 
 It works independently of the executor: OpenAI, Anthropic, Google, browser agents, RPA, internal agents, or conventional automation can all be verified through the same assurance layer.
