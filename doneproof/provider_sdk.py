@@ -187,10 +187,12 @@ class ProviderDefinition:
     legacy_credentials: Callable
     validate_configuration: Callable
     installation_url: Callable
+    admit_condition: Callable
 
     def __init__(self, manifest, adapter_factory, compiler=None, *, connection_factory=None, capability=None,
                  event_selector_allowed=None, legacy_credentials=lambda settings: (),
-                 validate_configuration=lambda settings: None, installation_url=lambda settings: None):
+                 validate_configuration=lambda settings: None, installation_url=lambda settings: None,
+                 admit_condition=lambda pc: True):
         manifest = ProviderManifest.model_validate(manifest)
         if compiler is None:
             from .provider_compilation import SchemaCompiler
@@ -201,7 +203,7 @@ class ProviderDefinition:
             raise ValueError("Unmanaged providers must declare tenant-bound availability")
         if manifest.discovery.event_driven and not callable(event_selector_allowed):
             raise ValueError("Event discovery requires a tenant-bound source authorization hook")
-        if not callable(adapter_factory) or not all(callable(getattr(compiler, name, None)) for name in
+        if not callable(adapter_factory) or not callable(admit_condition) or not all(callable(getattr(compiler, name, None)) for name in
                 ("parse_clause", "analyze_condition", "analyze_intent", "validate_legacy_selector")):
             raise ValueError("Provider implementation does not implement SDK v1")
         values = locals()

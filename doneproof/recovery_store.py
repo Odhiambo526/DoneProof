@@ -186,7 +186,7 @@ class RecoveryStore(JobStore):
                     "previous_receipt_id": r.previous_receipt_id, "verdict": r.verdict, "verified_at": r.verified_at.isoformat(),
                     "recovery": r.recovery.model_dump() if r.recovery else None,
                     "conditions": [{"condition": x.id, "status": x.status} for x in r.results],
-                    "remediation": [x.model_dump() for x in (r.remediation if r.schema_version == "1.1" else remediation_for(r.results))]} for r in receipts]}
+                      "remediation": [x.model_dump() for x in (r.remediation if r.schema_version in {"1.1", "1.2"} else remediation_for(r.results))]} for r in receipts]}
 
     def policy(self, tenant, receipt_id, automatic, configured_sources):
         with self.transaction() as con:

@@ -78,23 +78,26 @@ def publication_guards(con, sqlite):
     def field(path):
         return (f"CAST(json_extract(NEW.body_json,'$.{path}') AS TEXT)" if sqlite else
                 "(NEW.body_json::jsonb #>> '{" + path.replace(".", ",") + "}')")
-    comparisons = [("schema_version", "'1.1'"), ("previous_receipt_id", "a.previous_receipt_id"),
+    comparisons = [("previous_receipt_id", "a.previous_receipt_id"),
                    ("previous_receipt_hash", "p.receipt_hash"), ("recovery.chain_id", "a.root_id"),
                    ("recovery.attempt", "CAST(a.attempt AS TEXT)")]
     mismatch = " OR ".join(f"COALESCE({field(key)},'')<>{value}" for key, value in comparisons)
+    mismatch += f" OR COALESCE({field('schema_version')},'') NOT IN ('1.1','1.2')"
     invalid = f"""EXISTS(SELECT 1 FROM recovery_attempts a
         JOIN verification_jobs j ON j.tenant_id=a.tenant_id AND j.id=a.job_id
         JOIN receipts p ON p.tenant_id=a.tenant_id AND p.receipt_id=a.previous_receipt_id
         WHERE a.tenant_id=NEW.tenant_id AND j.receipt_id=NEW.receipt_id AND ({mismatch}))"""
     # Also cover ordinary jobs evaluated by a new worker but signed by an old
     # worker: its older model would discard 1.1 fields and make the receipt unreadable.
-    incomplete = (f"{field('schema_version')}='1.1' AND ("
+    incomplete = (f"{field('schema_version')} IN ('1.1','1.2') AND ("
                   f"{field('recovery.chain_id')} IS NULL OR {field('recovery.attempt')} IS NULL "
                   f"OR {field('remediation')} IS NULL)")
     invalid = f"({invalid}) OR ({incomplete})"
     release = "UPDATE recovery_chains SET active_job_id=NULL WHERE tenant_id=NEW.tenant_id AND active_job_id=NEW.id;"
     terminal = "NEW.state IN ('COMPLETE','PARTIAL_FAILURE','EXPIRED','INTERNAL_ERROR')"
     if sqlite:
+        # Migration 6 extends linked receipts to 1.2 without changing historical bytes.
+        con.execute("DROP TRIGGER IF EXISTS recovery_publication_guard")
         con.execute(f"""CREATE TRIGGER IF NOT EXISTS recovery_publication_guard BEFORE INSERT ON receipts
             WHEN {invalid} BEGIN SELECT RAISE(ABORT,'Recovery publication requires linked receipt'); END""")
         con.execute(f"""CREATE TRIGGER IF NOT EXISTS recovery_release_terminal AFTER UPDATE OF state ON verification_jobs

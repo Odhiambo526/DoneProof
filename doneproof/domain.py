@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_serializer, model_validator
 
+from .browser_models import BrowserProvenance
 from .recovery_models import RecoveryInfo, Remediation
 
 ProviderName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
@@ -37,7 +38,7 @@ class Postcondition(BaseModel):
     description: str = Field(
         min_length=2, max_length=300, description="Human-readable business outcome being verified."
     )
-    provider: ProviderName = Field(description="Authoritative evidence provider used for this condition.")
+    provider: ProviderName = Field(description="Evidence provider used for this condition; browser UI carries lower assurance than an authoritative API.")
     selector: dict[str, Any] = Field(
         description="Provider-specific resource lookup constraints. Credentials must not be placed here."
     )
@@ -89,6 +90,15 @@ class Evidence(BaseModel):
     source_url: str | None = None
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     note: str | None = None
+    provenance: BrowserProvenance | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_provenance(self, handler):
+        data = handler(self)
+        if self.provenance is None:
+            # Do not change canonical bytes of already signed API/webhook receipts.
+            data.pop("provenance", None)
+        return data
 
 
 class ConditionResult(BaseModel):
@@ -142,12 +152,14 @@ class VerificationReceipt(BaseModel):
 
     @model_validator(mode="after")
     def validate_recovery_version(self):
-        if self.schema_version not in {"1.0", "1.1"}:
+        if self.schema_version not in {"1.0", "1.1", "1.2"}:
             raise ValueError("Unsupported receipt schema")
+        if self.schema_version != "1.2" and any(r.evidence.provenance for r in self.results):
+            raise ValueError("Browser provenance requires receipt schema 1.2")
         if self.schema_version == "1.0" and (
                 self.remediation or self.recovery or self.previous_receipt_id or self.previous_receipt_hash):
             raise ValueError("Recovery fields require receipt schema 1.1")
-        if self.schema_version == "1.1":
+        if self.schema_version in {"1.1", "1.2"}:
             if self.recovery is None:
                 raise ValueError("Missing recovery metadata")
             if bool(self.previous_receipt_id) != bool(self.previous_receipt_hash):

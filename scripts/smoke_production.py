@@ -72,6 +72,8 @@ def main() -> int:
     assert status == 401, f"compiler capabilities without workspace key returned HTTP {status}"
     status, _, _ = fetch(base, "/v1/providers")
     assert status == 401, f"provider registry without workspace key returned HTTP {status}"
+    status, _, _ = fetch(base, "/v1/browser/checks")
+    assert status == 401, f"browser check catalog without workspace key returned HTTP {status}"
     status, _, _ = fetch(base, "/v1/connections/provider-metadata")
     assert status == 401, f"onboarding metadata without administrator key returned HTTP {status}"
     for path in ("/v1/jobs/vj_smoke", "/v1/jobs/vj_smoke/conditions", "/v1/jobs/vj_smoke/wait"):

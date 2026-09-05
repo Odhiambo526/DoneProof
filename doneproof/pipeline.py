@@ -6,6 +6,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field
 
+from .browser_models import BrowserProvenance
 from .security import _SENSITIVE_KEY, sanitize
 
 
@@ -18,6 +19,7 @@ class ObservationRecord(BaseModel):
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     latency_ms: float = 0.0
     authority: dict[str, Any] | None = None
+    provenance: BrowserProvenance | None = None
     redacted_paths: list[str] = Field(default_factory=list)
 
     def checkpoint(self):

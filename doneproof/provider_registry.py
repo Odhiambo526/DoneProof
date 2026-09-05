@@ -36,7 +36,8 @@ class ProviderRegistry:
         return definition
 
     def accepts(self, contract):
-        return all(pc.provider == "unresolved" or self.get(pc.provider) for pc in contract.postconditions)
+        return all(pc.provider == "unresolved" or (self.get(pc.provider) and self.require(pc.provider).admit_condition(pc))
+                   for pc in contract.postconditions)
 
     def concurrency(self):
         return {**{d.manifest.provider_id: d.manifest.rate_limit.concurrency for d in self}, "unresolved": 16}

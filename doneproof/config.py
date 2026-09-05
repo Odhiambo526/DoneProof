@@ -86,6 +86,7 @@ class Settings:
     job_callbacks: dict[str, dict[str, dict[str, str]]] = field(default_factory=dict, repr=False)
     compiler_reasoning_effort: str = "low"
     max_reverification_attempts: int = 5
+    browser_checks: dict = field(default_factory=dict, repr=False)
 
     @property
     def storage_dsn(self) -> str:
@@ -176,4 +177,5 @@ def get_settings() -> Settings:
         job_callbacks=_json("DONEPROOF_JOB_CALLBACKS_JSON", {}),
         max_reverification_attempts=int(os.getenv("DONEPROOF_MAX_REVERIFICATION_ATTEMPTS", "5")),
         compiler_reasoning_effort=os.getenv("DONEPROOF_COMPILER_REASONING_EFFORT", "low"),
+        browser_checks=_json("DONEPROOF_BROWSER_CHECKS_JSON", {}),
     )
