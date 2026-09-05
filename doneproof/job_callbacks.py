@@ -29,10 +29,14 @@ class CallbackRegistry:
                 url, secret = endpoint.get("url"), endpoint.get("secret")
                 if not isinstance(url, str) or not isinstance(secret, str) or len(secret) < 32:
                     raise RuntimeError("Callbacks require an HTTPS URL and a signing secret of at least 32 characters")
-                parts = urlsplit(url)
+                try:
+                    parts = urlsplit(url)
+                    port = parts.port
+                except ValueError:
+                    raise RuntimeError("Invalid callback destination") from None
                 host = parts.hostname or ""
                 if (parts.scheme != "https" or not host or parts.username or parts.password or parts.query
-                        or parts.fragment or parts.port not in {None, 443} or len(url) > 2048
+                        or parts.fragment or port not in {None, 443} or len(url) > 2048
                         or any(ord(c) < 33 for c in url)
                         or host == "localhost" or host.endswith((".localhost", ".local", ".internal"))):
                     raise RuntimeError("Callbacks require a fixed public HTTPS destination without URL credentials or query parameters")

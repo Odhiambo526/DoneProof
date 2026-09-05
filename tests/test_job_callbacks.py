@@ -117,3 +117,19 @@ def test_configuration_changes_do_not_retarget_queued_callback(callbacks):
     assert client.get(f"/v1/jobs/{identifier}", headers=A).json()["callback"]["error_code"] == "callback_configuration_changed"
     app.state.job_callbacks = CallbackRegistry({})
     assert client.post("/v1/jobs", json=body, headers=A).json()["id"] == identifier
+
+
+def test_callback_deadline_ends_delivery_even_when_retry_after_is_later(callbacks):
+    _, client, worker, requests = callbacks
+    identifier = submit(client, {**payload(), "callback_id": "audit"})
+    worker.db.cancel("tenant-a", identifier)
+    update(worker.db, "UPDATE verification_callback_outbox SET deadline_at=0,next_attempt_at=9999999999 WHERE job_id=?", (identifier,))
+    assert not asyncio.run(worker.callback_tick())
+    assert not requests
+    assert client.get(f"/v1/jobs/{identifier}", headers=A).json()["callback"]["state"] == "DEAD"
+
+
+def test_callback_configuration_errors_never_echo_secret_ports():
+    with pytest.raises(RuntimeError) as result:
+        CallbackRegistry({"tenant-a": {"audit": {"url": "https://receiver.example.org:secret-port/path", "secret": SECRET}}})
+    assert "secret-port" not in str(result.value)

@@ -351,8 +351,8 @@ class JobStore(ConnectionStore):
         with self.transaction() as con:
             now = self.now(con)
             row = self._row(self.execute(con, """SELECT * FROM verification_callback_outbox
-                WHERE state IN ('PENDING','SENDING') AND next_attempt_at<=? AND lease_until<=?
-                ORDER BY next_attempt_at LIMIT 1""" + self.lock(skip=True), (now, now)))
+                WHERE state IN ('PENDING','SENDING') AND ((next_attempt_at<=? AND lease_until<=?) OR deadline_at<=?)
+                ORDER BY next_attempt_at LIMIT 1""" + self.lock(skip=True), (now, now, now)))
             if not row:
                 return None
             from .retries import CALLBACK_POLICY

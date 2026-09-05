@@ -59,7 +59,7 @@ def register_job_routes(app):
             req = CreateJob.model_validate(raw)
             if contains_credentials(raw):
                 raise ValueError("Credentials belong in managed connections")
-        except (ValueError, ValidationError):
+        except (ValueError, ValidationError, RecursionError):
             # Do not echo arbitrary request fields (including accidental secrets) in validation errors.
             raise HTTPException(422, "Invalid verification job request") from None
         request_hash = digest(canonical(raw))
