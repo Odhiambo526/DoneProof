@@ -38,4 +38,3 @@ async def resilient_get(client: httpx.AsyncClient, url: str, *, attempts: int = 
             return response
         await asyncio.sleep(policy.delay(attempt, failure.retry_after))
     raise RuntimeError("Invalid retry attempt limit")
-

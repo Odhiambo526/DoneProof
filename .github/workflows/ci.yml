@@ -45,6 +45,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build image
         run: docker build -t doneproof:test .
+      - name: Worker startup and graceful shutdown
+        run: |
+          trap 'docker rm -f -v doneproof-worker-smoke >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name doneproof-worker-smoke doneproof:test python -m doneproof.worker
+          sleep 3
+          test "$(docker inspect --format '{{.State.Running}}' doneproof-worker-smoke)" = true
+          docker stop --time 15 doneproof-worker-smoke
+          test "$(docker inspect --format '{{.State.ExitCode}}' doneproof-worker-smoke)" = 0
 
   postgres:
     runs-on: ubuntu-latest

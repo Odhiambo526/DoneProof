@@ -208,4 +208,3 @@ class VerificationEngine:
         if passes and fails:
             return Verdict.PARTIAL
         return Verdict.UNKNOWN
-
