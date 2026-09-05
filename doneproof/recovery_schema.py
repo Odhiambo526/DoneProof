@@ -86,6 +86,12 @@ def publication_guards(con, sqlite):
         JOIN verification_jobs j ON j.tenant_id=a.tenant_id AND j.id=a.job_id
         JOIN receipts p ON p.tenant_id=a.tenant_id AND p.receipt_id=a.previous_receipt_id
         WHERE a.tenant_id=NEW.tenant_id AND j.receipt_id=NEW.receipt_id AND ({mismatch}))"""
+    # Also cover ordinary jobs evaluated by a new worker but signed by an old
+    # worker: its older model would discard 1.1 fields and make the receipt unreadable.
+    incomplete = (f"{field('schema_version')}='1.1' AND ("
+                  f"{field('recovery.chain_id')} IS NULL OR {field('recovery.attempt')} IS NULL "
+                  f"OR {field('remediation')} IS NULL)")
+    invalid = f"({invalid}) OR ({incomplete})"
     release = "UPDATE recovery_chains SET active_job_id=NULL WHERE tenant_id=NEW.tenant_id AND active_job_id=NEW.id;"
     terminal = "NEW.state IN ('COMPLETE','PARTIAL_FAILURE','EXPIRED','INTERNAL_ERROR')"
     if sqlite:

@@ -32,6 +32,20 @@ def test_legacy_receipt_canonical_payload_and_signature_are_unchanged():
     assert not ReceiptSigner.verify(receipt)
 
 
+def test_older_worker_cannot_discard_new_receipt_fields_at_signing_handoff(connection_settings):
+    store = Store(connection_settings.storage_dsn)
+    db = RecoveryStore(store)
+    # This is the shape an older model emits after loading a newer unsigned
+    # checkpoint: schema_version survives but unknown recovery fields do not.
+    raw = {**LEGACY["receipt"], "schema_version": "1.1"}
+    with pytest.raises(Exception, match="Recovery publication requires linked receipt"):
+        with db.transaction() as con:
+            db.execute(con, """INSERT INTO receipts
+                (tenant_id,receipt_id,contract_id,verdict,body_json,verified_at,receipt_hash,signature)
+                VALUES(?,?,?,?,?,?,?,?)""", ("tenant-a", raw["receipt_id"], raw["contract_id"], raw["verdict"],
+                    json.dumps(raw), raw["verified_at"], raw["receipt_hash"], raw["signature"]))
+
+
 def test_additive_migration_preserves_production_bytes_and_enrolls_legacy_receipt(connection_settings, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(store_module, "migrate_recovery", lambda con: None)
