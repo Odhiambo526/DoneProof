@@ -29,6 +29,9 @@ outcomes. Tests use local fixtures and configured mock providers.
   request may observe PREPARING and should fetch that session until resolved.
 - Compiler v2 retains its existing 50-condition contract limit; the existing
   low-level durable job API continues to support 1,000-condition workloads.
+- Initial jobs that expire or fail internally without a signed receipt are not
+  automatically replaced. Explicit low-level resubmission can retain the
+  original registered boundary but is not attached to the original session.
 - MemoryReplayStore is development-only. Production receiver deduplication must
   use an atomic durable shared inbox, with processing recoverable after claim.
 - A Node receipt containing an integer outside the safe range is unsupported;

@@ -93,5 +93,5 @@ if __name__ == '__main__':
         gc.collect()
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    target.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8', newline='\n')
     print(json.dumps(result))

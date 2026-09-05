@@ -111,6 +111,12 @@ AbortSignal stop local waiting. `cancel_job` / `cancelJob` requests durable serv
 cancellation; stopping a client does not implicitly cancel server work. An
 expired/internal-error job produces session state UNKNOWN with no invented
 receipt or verdict. Prior receipts remain in lineage.
+An initial job that terminates without a receipt remains idempotently terminal;
+the session API does not silently create a replacement initial job. An operator
+can explicitly submit its registered contract through the existing low-level
+job API with a new key to retain the original boundary, or prepare a new session
+before a new external execution. Such a low-level replacement is not attached
+to the original session. This is an intentional fail-closed recovery limitation.
 
 ## Connections and capabilities
 
