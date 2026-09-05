@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .connection_store import migrate as migrate_connections
 from .domain import CompletionContract, VerificationReceipt
 
 
@@ -120,6 +121,8 @@ class Store:
                 """
             )
 
+            migrate_connections(con)
+
     def _migrate_contract_primary_key(self, con: sqlite3.Connection) -> None:
         """Upgrade legacy global contract IDs to tenant-scoped IDs without losing data."""
         info = con.execute("PRAGMA table_info(contracts)").fetchall()
@@ -229,6 +232,11 @@ class Store:
                 cur.execute(
                     "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
                     (1, datetime.now(timezone.utc).isoformat()),
+                )
+                migrate_connections(con)
+                cur.execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
+                    (2, datetime.now(timezone.utc).isoformat()),
                 )
 
     # ------------------------------- Shared -------------------------------

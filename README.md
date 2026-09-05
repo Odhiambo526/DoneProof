@@ -2,6 +2,8 @@
 
 **Independent outcome assurance for AI agents.**
 
+Managed Gmail/GitHub onboarding is available through **Assurance console → Connection Settings**. See [managed connection setup, APIs and migration](docs/managed-connections.md) for operator configuration and security boundaries.
+
 AI agents can say a task is complete. DoneProof checks the external system and determines whether the requested outcome is actually true.
 
 It works independently of the executor: OpenAI, Anthropic, Google, browser agents, RPA, internal agents, or conventional automation can all be verified through the same assurance layer.

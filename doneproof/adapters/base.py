@@ -10,6 +10,9 @@ class ObservationContext:
     tenant_id: str
     contract_id: str
     task_started_at: str
+    condition_id: str = ""
+    require_connection_binding: bool = False
+    capture_connection_binding: bool = False
 
 
 @dataclass

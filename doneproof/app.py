@@ -17,11 +17,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from . import __version__
 from .adapters.base import ProviderAdapter
-from .adapters.github import GitHubAdapter
-from .adapters.gmail import GmailAdapter
 from .adapters.webhook import WebhookEvidenceAdapter
 from .compiler import AstraCompiler
 from .config import Settings, get_settings
+from .connection_api import register_connection_routes
+from .connections import ConnectionService, ManagedAdapter
 from .demo import DEMO_HTML
 from .domain import (
     CapabilityResponse,
@@ -73,9 +73,10 @@ def create_app(
     app.state.signer = ReceiptSigner(settings)
     app.state.compiler = AstraCompiler(settings)
     app.state.limiter = SlidingWindowLimiter(settings.requests_per_minute)
+    app.state.connections = ConnectionService(app.state.store, settings)
     adapters = {
-        "github": GitHubAdapter(token=settings.github_token),
-        "gmail": GmailAdapter(settings),
+        "github": ManagedAdapter(app.state.connections, "github"),
+        "gmail": ManagedAdapter(app.state.connections, "gmail"),
         "webhook": WebhookEvidenceAdapter(app.state.store),
     }
     if adapter_overrides:
@@ -119,7 +120,7 @@ def create_app(
                 tenant_id = next(
                     (
                         tenant
-                        for candidate, tenant in settings.api_keys.items()
+                        for candidate, tenant in {**settings.api_keys, **settings.connection_admin_keys}.items()
                         if hmac.compare_digest(candidate, supplied)
                     ),
                     None,
@@ -151,10 +152,15 @@ def create_app(
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/v1") else "public, max-age=300"
+        response.headers["Cache-Control"] = "no-store" if request.url.path.startswith(("/v1", "/connections")) else "public, max-age=300"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
         )
+        if request.url.path.startswith("/connections"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+                "img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+            )
         response.headers["X-DoneProof-Duration-Ms"] = f"{(time.perf_counter() - started) * 1000:.2f}"
         if settings.is_production:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -193,16 +199,15 @@ def create_app(
 
     @app.get("/v1/capabilities", response_model=CapabilityResponse, tags=["Workspace"])
     async def capabilities(ctx: TenantContext = Depends(require_tenant)):
-        gmail_available = bool(settings.gmail_token_for(ctx.tenant_id))
         providers = [
             ProviderCapability(
                 provider="github",
-                status="available",
-                description="Issues and pull requests with time-bounded resource discovery.",
+                status=app.state.connections.capability(ctx.tenant_id, "github"),
+                description="Issues and pull requests with time-bounded resource discovery. Public anonymous reads are supported when no connection exists.",
             ),
             ProviderCapability(
                 provider="gmail",
-                status="available" if gmail_available else "configuration_required",
+                status=app.state.connections.capability(ctx.tenant_id, "gmail"),
                 description="Sent-vs-draft, recipients, subject, thread and attachment metadata.",
             ),
             ProviderCapability(
@@ -500,6 +505,7 @@ def create_app(
             event_id=event_id, accepted=True, duplicate=not inserted, source=source, occurred_at=occurred_at
         )
 
+    register_connection_routes(app)
     return app
 
 

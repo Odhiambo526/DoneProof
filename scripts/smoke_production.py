@@ -69,6 +69,16 @@ def main() -> int:
     status, _, _ = fetch(base, "/v1/overview")
     assert status == 401, f"protected route without workspace key returned HTTP {status}"
 
+    status, _, _ = fetch(base, "/v1/connections")
+    assert status == 401, f"connection management without administrator key returned HTTP {status}"
+    status, connections, headers = fetch(base, "/connections")
+    assert status == 200 and b"Connection Settings" in connections
+    normalized_headers = {key.lower(): value for key, value in headers.items()}
+    assert normalized_headers.get("cache-control") == "no-store"
+    assert "script-src 'self';" in normalized_headers.get("content-security-policy", "")
+    status, console, _ = fetch(base, "/console")
+    assert status == 200 and b'href="/connections"' in console
+
     status, landing, _ = fetch(base, "/")
     assert status == 200 and b"Agents act" in landing and b"DoneProof" in landing
 

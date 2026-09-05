@@ -4,7 +4,7 @@ import base64
 import binascii
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
@@ -73,6 +73,16 @@ class Settings:
     requests_per_minute: int
     max_batch_size: int
     database_url: str | None = None
+    connection_admin_keys: dict[str, str] = field(default_factory=dict, repr=False)
+    connection_encryption_keys: dict[str, str] = field(default_factory=dict, repr=False)
+    connection_active_key: str | None = None
+    connection_public_url: str | None = None
+    google_client_id: str | None = None
+    google_client_secret: str | None = field(default=None, repr=False)
+    github_client_id: str | None = None
+    github_client_secret: str | None = field(default=None, repr=False)
+    github_app_slug: str | None = None
+    legacy_connection_tenant: str | None = None
 
     @property
     def storage_dsn(self) -> str:
@@ -150,4 +160,14 @@ def get_settings() -> Settings:
         requests_per_minute=int(os.getenv("DONEPROOF_REQUESTS_PER_MINUTE", "120")),
         max_batch_size=int(os.getenv("DONEPROOF_MAX_BATCH_SIZE", "25")),
         database_url=os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL"),
+        connection_admin_keys=_json("DONEPROOF_CONNECTION_ADMIN_KEYS_JSON", {}),
+        connection_encryption_keys=_json("DONEPROOF_CONNECTION_ENCRYPTION_KEYS_JSON", {}),
+        connection_active_key=os.getenv("DONEPROOF_CONNECTION_ACTIVE_KEY"),
+        connection_public_url=os.getenv("DONEPROOF_PUBLIC_URL"),
+        google_client_id=os.getenv("DONEPROOF_GOOGLE_CLIENT_ID"),
+        google_client_secret=os.getenv("DONEPROOF_GOOGLE_CLIENT_SECRET"),
+        github_client_id=os.getenv("DONEPROOF_GITHUB_CLIENT_ID"),
+        github_client_secret=os.getenv("DONEPROOF_GITHUB_CLIENT_SECRET"),
+        github_app_slug=os.getenv("DONEPROOF_GITHUB_APP_SLUG"),
+        legacy_connection_tenant=os.getenv("DONEPROOF_LEGACY_CONNECTION_TENANT"),
     )

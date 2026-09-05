@@ -35,9 +35,10 @@ def _parse_time(value: Any) -> datetime | None:
 class GitHubAdapter(ProviderAdapter):
     API = "https://api.github.com"
 
-    def __init__(self, token: str | None = None, transport: httpx.AsyncBaseTransport | None = None):
-        self.token = token or os.getenv("GITHUB_TOKEN")
+    def __init__(self, token: str | None = None, transport: httpx.AsyncBaseTransport | None = None, *, allow_env=True, response_hooks=None):
+        self.token = token or (os.getenv("GITHUB_TOKEN") if allow_env else None)
         self.transport = transport
+        self.response_hooks = response_hooks or []
 
     def _headers(self) -> dict[str, str]:
         h = {
@@ -55,6 +56,7 @@ class GitHubAdapter(ProviderAdapter):
             follow_redirects=False,
             transport=self.transport,
             headers=self._headers(),
+            event_hooks={"response": self.response_hooks},
         )
 
     async def observe(self, selector: dict[str, Any], context: ObservationContext) -> ProviderObservation:

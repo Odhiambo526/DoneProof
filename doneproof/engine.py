@@ -35,7 +35,7 @@ class VerificationEngine:
         self.signer = signer
         self.timeout_seconds = timeout_seconds
 
-    async def _verify_one(self, pc, contract: CompletionContract, tenant_id: str) -> ConditionResult:
+    async def _verify_one(self, pc, contract: CompletionContract, tenant_id: str, capture=False) -> ConditionResult:
         started = time.perf_counter()
         adapter = self.adapters.get(pc.provider)
         selector = dict(pc.selector)
@@ -48,6 +48,9 @@ class VerificationEngine:
             tenant_id=tenant_id,
             contract_id=contract.id,
             task_started_at=contract.task_started_at.isoformat(),
+            condition_id=pc.id,
+            require_connection_binding=pc.require_change,
+            capture_connection_binding=capture,
         )
         if adapter is None:
             return self._result_unknown(pc, safe_selector, "Provider is not available in this deployment.", started)
@@ -139,7 +142,7 @@ class VerificationEngine:
         targets = [pc for pc in contract.postconditions if pc.require_change]
         if not targets:
             return []
-        return list(await asyncio.gather(*(self._verify_one(pc, contract, tenant_id) for pc in targets)))
+        return list(await asyncio.gather(*(self._verify_one(pc, contract, tenant_id, capture=True) for pc in targets)))
 
     async def verify(
         self,

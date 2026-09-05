@@ -16,15 +16,17 @@ from .base import ObservationContext, ProviderAdapter, ProviderObservation
 class GmailAdapter(ProviderAdapter):
     API = "https://gmail.googleapis.com/gmail/v1/users/me"
 
-    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None, *, response_hooks=None):
         self.settings = settings
         self.transport = transport
+        self.response_hooks = response_hooks or []
 
     def _client(self, token: str) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             timeout=15.0,
             follow_redirects=False,
             transport=self.transport,
+            event_hooks={"response": self.response_hooks},
             headers={
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/json",
