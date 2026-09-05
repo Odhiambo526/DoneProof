@@ -341,13 +341,14 @@ class JobStore(ConnectionStore):
             changed = False
             for index, (pc, row) in enumerate(zip(contract.postconditions, rows, strict=True)):
                 observation = ObservationRecord.model_validate_json(row["observation_json"])
-                authority, connection = observation.authority or {}, connections.get(pc.provider)
-                valid = ((authority.get("mode") == "public" and self.registry.require(pc.provider).manifest.authentication.public_read and connection is None)
-                         or (authority.get("mode") == "managed" and connection and connection["state"] == "connected"
-                             and connection["id"] == authority.get("connection_id")
-                             and connection["revision"] == authority.get("revision")
-                             and (connection["expires_at"] is None or connection["expires_at"] > self.now(con))))
-                if not isinstance(engine.adapters.get(pc.provider), ManagedAdapter):
+                if isinstance(engine.adapters.get(pc.provider), ManagedAdapter):
+                    authority, connection = observation.authority or {}, connections.get(pc.provider)
+                    valid = ((authority.get("mode") == "public" and self.registry.require(pc.provider).manifest.authentication.public_read and connection is None)
+                             or (authority.get("mode") == "managed" and connection and connection["state"] == "connected"
+                                 and connection["id"] == authority.get("connection_id")
+                                 and connection["revision"] == authority.get("revision")
+                                 and (connection["expires_at"] is None or connection["expires_at"] > self.now(con))))
+                else:
                     valid = engine.observation_is_current(pc, observation, job["tenant_id"])
                 if not valid and not observation.indeterminate:
                     changed = True

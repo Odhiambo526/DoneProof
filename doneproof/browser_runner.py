@@ -39,12 +39,15 @@ class ChromiumObserver:
         context = await browser.new_context(viewport={"width": 1024, "height": 768}, device_scale_factor=1,
             service_workers="block", accept_downloads=False, permissions=[], java_script_enabled=True)
         failure = []
+        def fail(code):
+            if not failure:
+                failure.append(code)
         try:
             context.set_default_timeout(2000)
             page = await context.new_page()
 
             async def block_socket(socket):
-                failure.append("blocked_request")
+                fail("blocked_request")
                 await socket.close(code=1008, reason="Read-only verifier")
 
             async def route_request(route):
@@ -64,16 +67,16 @@ class ChromiumObserver:
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    failure.append(exc.code if isinstance(exc, BrowserUnavailable) else "blocked_request")
+                    fail(exc.code if isinstance(exc, BrowserUnavailable) else "blocked_request")
                     await route.abort()
 
             await context.route("**/*", route_request)
             await context.route_web_socket("**/*", block_socket)
-            page.on("pageerror", lambda *_: failure.append("ambiguous_ui"))
-            page.on("download", lambda *_: failure.append("blocked_request"))
-            context.on("page", lambda *_: failure.append("blocked_request"))
-            page.on("dialog", lambda *_: failure.append("login_or_challenge"))
-            page.on("framenavigated", lambda frame: failure.append("blocked_request")
+            page.on("pageerror", lambda *_: fail("ambiguous_ui"))
+            page.on("download", lambda *_: fail("blocked_request"))
+            context.on("page", lambda *_: fail("blocked_request"))
+            page.on("dialog", lambda *_: fail("login_or_challenge"))
+            page.on("framenavigated", lambda frame: fail("blocked_request")
                     if frame == page.main_frame and frame.url != check.url else None)
             try:
                 await page.goto(check.url, wait_until="networkidle", timeout=6500)
