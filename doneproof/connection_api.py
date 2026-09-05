@@ -13,8 +13,6 @@ from pydantic import BaseModel
 from .connection_web import CONNECTIONS_HTML, CONNECTIONS_JS
 from .connections import ConnectionConflict
 
-CALLBACK_PATH = re.compile(r"^/v1/connections/oauth/(gmail|github)/callback$")
-
 
 class ConnectionView(BaseModel):
     id: str
@@ -52,7 +50,7 @@ class CallbackQueryPrivacy:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and CALLBACK_PATH.fullmatch(scope["path"]):
+        if scope["type"] == "http" and scope["path"].startswith("/v1/connections/oauth/"):
             raw = scope.get("query_string", b"")
             scope["query_string"] = b""
             scope["raw_path"] = scope["path"].encode("ascii")

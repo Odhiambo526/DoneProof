@@ -341,12 +341,16 @@ def test_registered_gmail_transition_and_receipt_integrity(connection_app):
     assert ReceiptSigner.verify_trusted(receipt, app.state.signer.public_key_b64)
 
 
-def test_callback_query_is_removed_from_access_log_scope():
+@pytest.mark.parametrize("path", [
+    "/v1/connections/oauth/gmail/callback", "/v1/connections/oauth/gmail/callback/",
+    "/v1/connections/oauth/unrecognized/callback",
+])
+def test_callback_query_is_removed_from_access_log_scope(path):
     from uvicorn.protocols.utils import get_path_with_query_string
 
     from doneproof.connection_api import CallbackQueryPrivacy
-    scope = {"type": "http", "path": "/v1/connections/oauth/gmail/callback",
-             "raw_path": b"/v1/connections/oauth/gmail/callback",
+    scope = {"type": "http", "path": path,
+             "raw_path": path.encode(),
              "query_string": b"state=test-state-sentinel&code=test-code-sentinel"}
     async def downstream(scope, receive, send):
         assert scope["doneproof.oauth"]["code"] == "test-code-sentinel"

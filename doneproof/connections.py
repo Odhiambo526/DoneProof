@@ -47,7 +47,7 @@ class ConnectionService:
         if base:
             parts = urlsplit(base)
             local = not self.settings.is_production and parts.hostname in {"localhost", "127.0.0.1"}
-            if (parts.scheme != "https" and not (local and parts.scheme == "http")
+            if (not base.startswith("https://") and not (local and base.startswith("http://"))
                     or not parts.netloc or parts.username or parts.password or parts.query or parts.fragment
                     or parts.path not in {"", "/"}):
                 raise RuntimeError("DONEPROOF_PUBLIC_URL must be a fixed HTTPS origin")
