@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import time
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -49,10 +51,30 @@ class Store:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
     def _init_sqlite(self):
-        with self._connect() as con:
-            con.executescript(
+        for attempt in range(6):
+            try:
+                self._init_sqlite_once()
+                return
+            except sqlite3.OperationalError as exc:
+                if getattr(exc, "sqlite_errorcode", None) not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED} or attempt == 5:
+                    raise
+                # Changing WAL mode can report BUSY immediately, even with busy_timeout.
+                time.sleep(0.05 * 2**attempt)
+
+    @staticmethod
+    def _sqlite_schema(con, script):
+        # These fixed DDL statements contain no semicolons inside string literals.
+        # executescript() implicitly commits and would release the migration lock.
+        for statement in script.split(";"):
+            if statement.strip():
+                con.execute(statement)
+
+    def _init_sqlite_once(self):
+        with closing(self._connect()) as con, con:
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute("BEGIN IMMEDIATE")
+            self._sqlite_schema(con,
                 """
-                PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS contracts (
                     id TEXT NOT NULL,
                     task TEXT NOT NULL,
@@ -112,7 +134,7 @@ class Store:
             self._add_column_if_missing(con, "contracts", "tenant_id", "tenant_id TEXT NOT NULL DEFAULT 'default'")
             self._add_column_if_missing(con, "receipts", "tenant_id", "tenant_id TEXT NOT NULL DEFAULT 'default'")
             self._migrate_contract_primary_key(con)
-            con.executescript(
+            self._sqlite_schema(con,
                 """
                 CREATE INDEX IF NOT EXISTS idx_receipts_tenant_time ON receipts(tenant_id, verified_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_receipts_contract ON receipts(tenant_id, contract_id, verified_at DESC);
@@ -129,7 +151,7 @@ class Store:
         pk_cols = [row[1] for row in sorted((r for r in info if r[5]), key=lambda r: r[5])]
         if pk_cols != ["id"]:
             return
-        con.executescript(
+        self._sqlite_schema(con,
             """
             ALTER TABLE contracts RENAME TO contracts_legacy_global_pk;
             CREATE TABLE contracts (
