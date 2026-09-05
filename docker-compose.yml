@@ -8,6 +8,18 @@ services:
     volumes:
       - doneproof-data:/data
     restart: unless-stopped
+  worker:
+    build: .
+    command: ["python", "-m", "doneproof.worker"]
+    init: true
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
+    env_file:
+      - .env
+    volumes:
+      - doneproof-data:/data
+    restart: unless-stopped
 
 volumes:
   doneproof-data:

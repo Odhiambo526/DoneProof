@@ -35,6 +35,9 @@ from .domain import (
     WebhookEventReceipt,
 )
 from .engine import VerificationEngine
+from .job_api import register_job_routes
+from .job_callbacks import CallbackRegistry
+from .job_store import JobStore
 from .limits import SlidingWindowLimiter
 from .security import TenantContext, require_tenant
 from .signing import ReceiptSigner
@@ -82,6 +85,9 @@ def create_app(
     if adapter_overrides:
         adapters.update(adapter_overrides)
     app.state.engine = VerificationEngine(adapters, app.state.signer, settings.verification_timeout_seconds)
+    app.state.jobs = JobStore(app.state.store)
+    app.state.job_callbacks = CallbackRegistry(settings.job_callbacks)
+    register_job_routes(app)
 
     if settings.cors_origins:
         app.add_middleware(

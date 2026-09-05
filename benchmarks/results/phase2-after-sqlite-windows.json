@@ -1,0 +1,76 @@
+{
+  "mode": "durable",
+  "baseline_commit": "c33ad5f5918d36300d3581e700dffcb39c940ba9",
+  "captured_at": "2026-09-05T07:57:15.361224+00:00",
+  "python": "3.12.14",
+  "platform": "Windows-11-10.0.22000-SP0",
+  "repeats": 10,
+  "results": [
+    {
+      "conditions": 1,
+      "provider_delay_ms": 0,
+      "p50_ms": 198.556,
+      "p95_ms": 223.195,
+      "mean_ms": 197.413,
+      "peak_provider_concurrency": 1
+    },
+    {
+      "conditions": 10,
+      "provider_delay_ms": 0,
+      "p50_ms": 226.731,
+      "p95_ms": 238.655,
+      "mean_ms": 222.502,
+      "peak_provider_concurrency": 10
+    },
+    {
+      "conditions": 100,
+      "provider_delay_ms": 0,
+      "p50_ms": 799.182,
+      "p95_ms": 2431.575,
+      "mean_ms": 990.097,
+      "peak_provider_concurrency": 16
+    },
+    {
+      "conditions": 1000,
+      "provider_delay_ms": 0,
+      "p50_ms": 15641.833,
+      "p95_ms": 19485.289,
+      "mean_ms": 15921.502,
+      "peak_provider_concurrency": 16
+    },
+    {
+      "conditions": 1,
+      "provider_delay_ms": 5.0,
+      "p50_ms": 184.543,
+      "p95_ms": 200.436,
+      "mean_ms": 183.033,
+      "peak_provider_concurrency": 1
+    },
+    {
+      "conditions": 10,
+      "provider_delay_ms": 5.0,
+      "p50_ms": 210.691,
+      "p95_ms": 659.149,
+      "mean_ms": 252.397,
+      "peak_provider_concurrency": 10
+    },
+    {
+      "conditions": 100,
+      "provider_delay_ms": 5.0,
+      "p50_ms": 859.032,
+      "p95_ms": 2953.268,
+      "mean_ms": 1155.389,
+      "peak_provider_concurrency": 16
+    },
+    {
+      "conditions": 1000,
+      "provider_delay_ms": 5.0,
+      "p50_ms": 17505.584,
+      "p95_ms": 26532.238,
+      "mean_ms": 18598.524,
+      "peak_provider_concurrency": 16
+    }
+  ],
+  "storage": "sqlite",
+  "note": "Synthetic durable end-to-end timings, including creation, leases, checkpoints, signing and receipt read. No real provider network. 100/1000-condition baseline workloads bypass the legacy API's 50-condition validation limit."
+}

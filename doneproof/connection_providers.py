@@ -8,16 +8,20 @@ from urllib.parse import urlencode
 
 import httpx
 
+from .retries import transient_exception, transient_response
+
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 TOKEN_URLS = {"gmail": "https://oauth2.googleapis.com/token", "github": "https://github.com/login/oauth/access_token"}
 AUTH_URLS = {"gmail": "https://accounts.google.com/o/oauth2/v2/auth", "github": "https://github.com/login/oauth/authorize"}
 
 
 class ProviderFailure(Exception):
-    def __init__(self, code="provider_unavailable", reconnect=False):
+    def __init__(self, code="provider_unavailable", reconnect=False, *, transient=False, retry_after=0):
         super().__init__(code)
         self.code = code
         self.reconnect = reconnect
+        self.transient = transient
+        self.retry_after = retry_after
 
 
 class OAuthProviders:
@@ -50,6 +54,9 @@ class OAuthProviders:
             async with httpx.AsyncClient(timeout=15, follow_redirects=False, transport=self.transport,
                     headers={"Accept": "application/json", "User-Agent": "DoneProof-connections"}) as client:
                 response = await client.request(method, url, **kwargs)
+            failure = transient_response(response)
+            if failure:
+                raise ProviderFailure(failure.code, transient=True, retry_after=failure.retry_after)
             if response.status_code in {401, 403}:
                 raise ProviderFailure("authorization_required", True)
             if response.status_code >= 300:
@@ -63,8 +70,8 @@ class OAuthProviders:
             if len(response.content) > 1024 * 1024:
                 raise ProviderFailure("invalid_provider_response")
             return response
-        except httpx.HTTPError:
-            raise ProviderFailure() from None
+        except httpx.HTTPError as exc:
+            raise ProviderFailure(transient=transient_exception(exc)) from None
 
     @staticmethod
     def token_payload(data, previous=None):

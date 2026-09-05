@@ -1,0 +1,76 @@
+{
+  "mode": "sync",
+  "baseline_commit": "c33ad5f5918d36300d3581e700dffcb39c940ba9",
+  "captured_at": "2026-09-05T07:36:16.363419+00:00",
+  "python": "3.12.14",
+  "platform": "Windows-11-10.0.22000-SP0",
+  "repeats": 10,
+  "results": [
+    {
+      "conditions": 1,
+      "provider_delay_ms": 0,
+      "p50_ms": 0.539,
+      "p95_ms": 0.606,
+      "mean_ms": 0.552,
+      "peak_provider_concurrency": 1
+    },
+    {
+      "conditions": 10,
+      "provider_delay_ms": 0,
+      "p50_ms": 3.634,
+      "p95_ms": 4.468,
+      "mean_ms": 3.367,
+      "peak_provider_concurrency": 10
+    },
+    {
+      "conditions": 100,
+      "provider_delay_ms": 0,
+      "p50_ms": 20.597,
+      "p95_ms": 40.985,
+      "mean_ms": 22.278,
+      "peak_provider_concurrency": 16
+    },
+    {
+      "conditions": 1000,
+      "provider_delay_ms": 0,
+      "p50_ms": 163.286,
+      "p95_ms": 188.572,
+      "mean_ms": 171.782,
+      "peak_provider_concurrency": 16
+    },
+    {
+      "conditions": 1,
+      "provider_delay_ms": 5.0,
+      "p50_ms": 15.655,
+      "p95_ms": 16.67,
+      "mean_ms": 15.625,
+      "peak_provider_concurrency": 1
+    },
+    {
+      "conditions": 10,
+      "provider_delay_ms": 5.0,
+      "p50_ms": 15.566,
+      "p95_ms": 16.951,
+      "mean_ms": 15.419,
+      "peak_provider_concurrency": 10
+    },
+    {
+      "conditions": 100,
+      "provider_delay_ms": 5.0,
+      "p50_ms": 133.269,
+      "p95_ms": 140.109,
+      "mean_ms": 131.27,
+      "peak_provider_concurrency": 16
+    },
+    {
+      "conditions": 1000,
+      "provider_delay_ms": 5.0,
+      "p50_ms": 1114.064,
+      "p95_ms": 1135.736,
+      "mean_ms": 1085.116,
+      "peak_provider_concurrency": 16
+    }
+  ],
+  "storage": null,
+  "note": "Synthetic engine-only timings, including evaluation and signing; no database. No real provider network. 100/1000-condition baseline workloads bypass the legacy API's 50-condition validation limit."
+}

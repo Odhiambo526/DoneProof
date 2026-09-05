@@ -17,6 +17,7 @@ from .adapters.gmail import GmailAdapter
 from .connection_crypto import CredentialVault
 from .connection_providers import OAuthProviders, ProviderFailure
 from .connection_store import ConnectionStore
+from .retries import TransientObservationError, durable_observation, transient_response
 
 
 def digest(value):
@@ -221,9 +222,11 @@ class ConnectionService:
                 return None
             except ProviderFailure as exc:
                 # Network ambiguity during a rotating refresh requires new authorization.
-                if refresh and exc.code in {"provider_unavailable", "invalid_provider_response"}:
+                if refresh and (exc.transient or exc.code in {"provider_unavailable", "invalid_provider_response"}):
                     exc = ProviderFailure("refresh_interrupted", True)
                 self.fail(leased, exc, credentials if refreshed else None)
+                if durable_observation.get() and not refresh and exc.transient:
+                    raise TransientObservationError(exc.code, exc.retry_after) from None
                 return None
         return None
 
@@ -305,6 +308,11 @@ class ManagedAdapter(ProviderAdapter):
 
         async def response_hook(response):
             nonlocal auth_failed
+            if durable_observation.get():
+                await response.aread()
+                failure = transient_response(response)
+                if failure:
+                    raise failure
             if response.status_code in {401, 403}:
                 auth_failed = True
 
@@ -331,4 +339,16 @@ class ManagedAdapter(ProviderAdapter):
             return self.unavailable()
         if not row and current:
             return self.unavailable()
+        observation.authority = ({"mode": "managed", "connection_id": row["id"], "revision": row["revision"]}
+                                 if row else {"mode": "public"})
         return observation
+
+    def observation_is_current(self, authority, tenant_id):
+        current = self.service.db.get(tenant_id, provider=self.provider)
+        if not authority:
+            return False
+        if authority.get("mode") == "public":
+            return self.provider == "github" and current is None
+        return bool(current and current["state"] == "connected"
+                    and current["id"] == authority.get("connection_id")
+                    and current["revision"] == authority.get("revision"))
