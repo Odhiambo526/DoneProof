@@ -1,5 +1,10 @@
 # DoneProof
 
+Agent integrations: [Assurance Session Protocol and Python/TypeScript SDKs](docs/assurance-sessions.md)
+provide preparation, durable verification, signed callbacks and immutable repair
+chains. Run `python examples/assured_agent.py` for the explicit offline fixture
+demo. See [framework recipes](docs/agent-integration-recipes.md) for existing agent runtimes.
+
 Completion Contract Compiler v2 adds deterministic parsing, tenant-bound selector preflight,
 static analysis and structured clarification results. See [compiler API and evaluation](docs/compiler-v2.md).
 

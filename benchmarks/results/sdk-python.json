@@ -1,0 +1,25 @@
+{
+  "fixture": true,
+  "storage": "sqlite",
+  "network": "in-process ASGI; provider is offline fixture",
+  "prepare_session_ms_mean": 78.9991200028453,
+  "prepare_session_ms_max": 133.9342000137549,
+  "end_to_end_verification_ms_mean": 279.98524999129586,
+  "polling_requests_per_job": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "provider_catalog_requests_for_two_calls": 1,
+  "live_capability_requests_for_two_calls": 2,
+  "python_serialize_parse_ms_mean": 0.10503259999677539,
+  "python_sdk_no_network_ms_mean": 0.819803997001145,
+  "session_bytes": 1867
+}

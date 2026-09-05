@@ -1,0 +1,7 @@
+{
+  "fixture": true,
+  "network": "mock fetch, no network",
+  "typescript_serialize_parse_ms_mean": 0.04725999999999999,
+  "typescript_sdk_no_network_ms_mean": 0.6166949999999997,
+  "session_bytes": 1865
+}

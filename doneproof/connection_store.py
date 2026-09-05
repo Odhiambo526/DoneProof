@@ -1,6 +1,7 @@
 """Additive connection persistence. Every resource lookup includes the tenant."""
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import time
@@ -141,8 +142,28 @@ class ConnectionStore:
                 WHERE tenant_id=? AND id=? AND revision=? AND lease_until<=? AND state<>'disabled'
                 RETURNING *""", (lease, now + 120, row["tenant_id"], row["id"], row["revision"], now)))
 
-    def disable(self, row):
+    def disable(self, row, *, idempotency_key=None, expected_revision=None):
         with self.transaction() as con:
+            if idempotency_key is not None:
+                hashed = hashlib.sha256(idempotency_key.encode()).hexdigest()
+                # Lock the connection before admitting an operation. Retries never
+                # disable an account that has since been re-authorized.
+                current = self._row(self.execute(con,
+                    'SELECT * FROM connections WHERE tenant_id=? AND id=?' + (' FOR UPDATE' if self.pg else ''),
+                    (row['tenant_id'], row['id'])))
+                inserted = self.execute(con, '''INSERT INTO connection_operations
+                    (tenant_id,idempotency_hash,connection_id,expected_revision) VALUES(?,?,?,?)
+                    ON CONFLICT(tenant_id,idempotency_hash) DO NOTHING''',
+                    (row['tenant_id'], hashed, row['id'], expected_revision)).rowcount
+                if not inserted:
+                    operation = self._row(self.execute(con,
+                        'SELECT * FROM connection_operations WHERE tenant_id=? AND idempotency_hash=?',
+                        (row['tenant_id'], hashed)))
+                    if operation['connection_id'] != row['id'] or operation['expected_revision'] != expected_revision:
+                        raise ValueError('connection_operation_conflict')
+                    return None
+                if current['revision'] != expected_revision:
+                    raise ValueError('connection_revision_conflict')
             updated = self._row(self.execute(con, """UPDATE connections SET state='disabled',
                 revision=revision+1,authorization_version=authorization_version+1,
                 lease_id=NULL,lease_until=0,updated_at=?,
@@ -209,7 +230,7 @@ class ConnectionStore:
     @staticmethod
     def public(row):
         keys = ("id", "provider", "state", "account_label", "expires_at", "refresh_expires_at",
-                "last_checked_at", "error_code", "created_at", "updated_at")
+                "last_checked_at", "error_code", "created_at", "updated_at", "revision")
         result = {k: row[k] for k in keys}
         result["scopes"] = json.loads(row["scopes_json"])
         result["revocation_pending"] = bool(row["revocation_pending"])
