@@ -19,7 +19,7 @@ jobs:
       - name: Install
         run: python -m pip install -e '.[dev]'
       - name: Lint
-        run: ruff check doneproof tests scripts
+        run: ruff check doneproof tests scripts evaluations
 
   test:
     runs-on: ubuntu-latest
@@ -82,6 +82,13 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/doneproof_test
         run: pytest -q
+      - name: Compiler corpus evaluation
+        run: python evaluations/run_compiler.py --output evaluations/results/ci-offline.json --export-corpus evaluations/results/ci-corpus.jsonl
+      - name: Save compiler evaluation
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiler-evaluation
+          path: evaluations/results/ci-*
       - name: Comparable orchestration benchmarks
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/doneproof_test
