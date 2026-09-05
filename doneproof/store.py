@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .assurance_schema import migrate as migrate_assurance
 from .browser_artifacts import migrate as migrate_browser_artifacts
 from .connection_store import migrate as migrate_connections
 from .domain import CompletionContract, VerificationReceipt
@@ -155,6 +156,7 @@ class Store:
             migrate_recovery(con)
             migrate_providers(con, pg=False)
             migrate_browser_artifacts(con)
+            migrate_assurance(con)
             synchronize_slots(con, self.registry, pg=False)
 
     def _migrate_contract_primary_key(self, con: sqlite3.Connection) -> None:
@@ -289,6 +291,9 @@ class Store:
                 migrate_browser_artifacts(con)
                 cur.execute("INSERT INTO schema_migrations(version,applied_at) VALUES(%s,%s) ON CONFLICT DO NOTHING",
                             (6, datetime.now(timezone.utc).isoformat()))
+                migrate_assurance(con)
+                cur.execute("INSERT INTO schema_migrations(version,applied_at) VALUES(%s,%s) ON CONFLICT DO NOTHING",
+                            (7, datetime.now(timezone.utc).isoformat()))
 
     # ------------------------------- Shared -------------------------------
     def ping(self) -> bool:

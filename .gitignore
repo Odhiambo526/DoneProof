@@ -12,3 +12,6 @@ __pycache__/
 .DS_Store
 
 *.egg-info/
+node_modules/
+sdk/typescript/dist/
+sdk/typescript/example-dist/

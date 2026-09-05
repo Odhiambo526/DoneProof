@@ -6,9 +6,9 @@ import re
 from typing import Literal
 from urllib.parse import parse_qs
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from .connection_web import CONNECTIONS_HTML, CONNECTIONS_JS
 from .connections import ConnectionConflict
@@ -27,6 +27,12 @@ class ConnectionView(BaseModel):
     updated_at: int
     scopes: list[str]
     revocation_pending: bool
+    revision: int = 0
+
+
+class DisconnectRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    expected_revision: int = Field(ge=0)
 
 
 class OnboardingProvider(BaseModel):
@@ -167,6 +173,21 @@ def register_connection_routes(app):
     async def disconnect(connection_id: str, tenant: str = Depends(administrator)):
         owned(tenant, connection_id)
         return service.db.public(await service.disconnect(tenant, connection_id))
+
+    @app.post('/v2/connections/{connection_id}/disconnect', response_model=ConnectionView, tags=['Connections'],
+              openapi_extra={'requestBody': {'required': True, 'content': {'application/json': {'schema': DisconnectRequest.model_json_schema()}}}})
+    async def disconnect_once(connection_id: str, request: Request, tenant: str = Depends(administrator),
+                              key: str | None = Header(default=None, alias='Idempotency-Key')):
+        from .assurance_api import session_key
+        from .recovery_api import parse
+        session_key(key)
+        req = await parse(request, DisconnectRequest, app.state.settings.max_body_bytes)
+        owned(tenant, connection_id)
+        try:
+            row = await service.disconnect(tenant, connection_id, idempotency_key=key, expected_revision=req.expected_revision)
+        except ValueError:
+            raise HTTPException(409, 'Connection operation or revision changed') from None
+        return service.db.public(row)
 
     @app.post("/v1/connections/{connection_id}/rotate-key", response_model=ConnectionView, tags=["Connections"])
     def rotate_key(connection_id: str, tenant: str = Depends(administrator)):

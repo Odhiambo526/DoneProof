@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from . import __version__
 from .adapters.base import ProviderAdapter
+from .assurance_api import register_assurance_routes
 from .browser_api import register_browser_routes
 from .compilation import ContractCompiler
 from .compilation_models import CompilationResult
@@ -100,6 +101,7 @@ def create_app(
     register_job_routes(app)
     register_recovery_routes(app)
     register_browser_routes(app)
+    register_assurance_routes(app)
 
     @app.exception_handler(RequestValidationError)
     async def safe_compilation_validation(request, exc):
@@ -558,7 +560,11 @@ def create_app(
     register_connection_routes(app)
     original_openapi = app.openapi
     def provider_openapi():
-        return registry.describe_contracts(original_openapi())
+        from .assurance_models import PrepareSession
+        schema = original_openapi()
+        schema['components']['schemas'].update(PrepareSession.model_json_schema(
+            ref_template='#/components/schemas/{model}').get('$defs', {}))
+        return registry.describe_contracts(schema)
     app.openapi = provider_openapi
     return app
 

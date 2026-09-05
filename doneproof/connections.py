@@ -218,11 +218,13 @@ class ConnectionService:
                 return None
         return None
 
-    async def disconnect(self, tenant, connection_id):
+    async def disconnect(self, tenant, connection_id, *, idempotency_key=None, expected_revision=None):
         row = self.db.get(tenant, connection_id=connection_id)
         if not row:
             return None
-        disabled = self.db.disable(row)
+        disabled = self.db.disable(row, idempotency_key=idempotency_key, expected_revision=expected_revision)
+        if disabled is None:
+            return self.db.get(tenant, connection_id=connection_id)
         self.db.audit(disabled, "disabled")
         for pending in self.db.revocations(disabled):
             try:

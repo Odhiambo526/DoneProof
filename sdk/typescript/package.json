@@ -1,0 +1,20 @@
+{
+  "name": "@doneproof/sdk",
+  "version": "0.9.4",
+  "description": "Framework-neutral DoneProof Assurance Session Protocol client",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.examples.json --noEmit",
+    "lint": "tsc -p tsconfig.examples.json --noEmit --noUnusedLocals --noUnusedParameters --noImplicitReturns --noFallthroughCasesInSwitch",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "demo": "tsc -p tsconfig.examples.json && node example-dist/examples/assured-agent.js"
+  },
+  "dependencies": { "ajv": "8.17.1", "ajv-formats": "3.0.1" },
+  "devDependencies": { "@types/node": "22.18.6", "typescript": "5.9.3" }
+}
