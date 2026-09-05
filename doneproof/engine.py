@@ -20,6 +20,7 @@ from .domain import (
 )
 from .pipeline import ObservationRecord
 from .predicates import evaluate
+from .provider_registry import default_registry
 from .recovery_models import RecoveryInfo
 from .remediation import GUIDANCE_FIELDS, contains_guidance, remediation_for
 from .retries import TransientObservationError, durable_observation, transient_exception
@@ -31,16 +32,22 @@ logger = logging.getLogger("doneproof.verification")
 
 class VerificationEngine:
     def __init__(self, adapters: dict[str, ProviderAdapter], signer: ReceiptSigner,
-                 timeout_seconds: float = 15.0, provider_concurrency: dict[str, int] | None = None):
+                 timeout_seconds: float = 15.0, provider_concurrency: dict[str, int] | None = None, registry=None,
+                 provider_binding_check=None):
         self.adapters = adapters
         self.signer = signer
         self.timeout_seconds = timeout_seconds
-        self.provider_concurrency = provider_concurrency or {"github": 8, "gmail": 4, "webhook": 16, "unresolved": 16}
+        self.registry = registry or default_registry()
+        self.provider_binding_check = provider_binding_check
+        self.provider_concurrency = provider_concurrency or self.registry.concurrency()
 
     def selector_for(self, pc, contract):
         selector = dict(pc.selector)
-        if pc.provider in {"github", "gmail", "webhook"} and self._is_discovery(pc.provider, selector):
-            selector["created_after"] = contract.task_started_at.isoformat()
+        definition = self.registry.get(pc.provider)
+        if definition:
+            discovery = definition.manifest.discovery
+            if discovery.boundary_field and discovery.is_discovery(selector):
+                selector[discovery.boundary_field] = contract.task_started_at.isoformat()
         return selector
 
     async def observe(self, pc, contract, tenant_id, *, capture=False, durable=False) -> ObservationRecord:
@@ -48,6 +55,8 @@ class VerificationEngine:
         adapter = self.adapters.get(pc.provider)
         if adapter is None:
             return ObservationRecord(indeterminate=True, note="Provider is not available in this deployment.")
+        if self.provider_binding_check and not self.provider_binding_check(tenant_id, contract.id, pc.provider):
+            return ObservationRecord(indeterminate=True, note="The registered provider definition changed; register a new run.")
         context = ObservationContext(tenant_id=tenant_id, contract_id=contract.id,
             task_started_at=contract.task_started_at.isoformat(), condition_id=pc.id,
             require_connection_binding=pc.require_change, capture_connection_binding=capture)
@@ -55,8 +64,10 @@ class VerificationEngine:
         try:
             observation = await asyncio.wait_for(
                 adapter.observe(self.selector_for(pc, contract), context), timeout=self.timeout_seconds)
+            definition = self.registry.get(pc.provider)
             return ObservationRecord(state=observation.state, source_url=observation.source_url,
                 note=observation.note, indeterminate=observation.indeterminate, authority=observation.authority,
+                redacted_paths=list(definition.manifest.sensitive_paths) if definition else [],
                 latency_ms=round((time.perf_counter() - started) * 1000, 2))
         except TransientObservationError:
             if durable:
@@ -81,6 +92,15 @@ class VerificationEngine:
         return adapter is None or adapter.observation_is_current(observation.authority, tenant_id)
 
     def evaluate_observation(self, pc, contract, observation: ObservationRecord) -> ConditionResult:
+        definition = self.registry.get(pc.provider)
+        if definition:
+            spec = definition.manifest
+            observation = observation.model_copy(update={
+                "redacted_paths": sorted(set(observation.redacted_paths) | set(spec.sensitive_paths))})
+            if (pc.predicate.op not in spec.supported_predicates
+                    or pc.require_change and not spec.transition_support):
+                observation = observation.model_copy(update={"state": None, "indeterminate": True,
+                    "note": "The provider does not support the requested predicate or transition."})
         observation = observation.checkpoint()
         if (contains_guidance(observation.state)
                 or any(part in GUIDANCE_FIELDS for part in pc.predicate.path.split("."))):
@@ -112,18 +132,10 @@ class VerificationEngine:
             reason=reason, transition_required=pc.require_change,
             latency_ms=round((time.perf_counter() - started) * 1000, 2))
 
-    @staticmethod
-    def _is_discovery(provider, selector):
-        if provider == "github":
-            return selector.get("number") is None
-        if provider == "gmail":
-            return selector.get("message_id") is None
-        return provider == "webhook"
-
     async def _conditions(self, targets, contract, tenant_id, capture=False):
         limits = {name: asyncio.Semaphore(limit) for name, limit in self.provider_concurrency.items()}
         async def one(pc):
-            async with limits[pc.provider]:
+            async with limits.get(pc.provider, limits["unresolved"]):
                 return await self._verify_one(pc, contract, tenant_id, capture=capture)
         return list(await asyncio.gather(*(one(pc) for pc in targets)))
 

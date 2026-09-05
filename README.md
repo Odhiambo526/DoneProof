@@ -3,6 +3,8 @@
 Completion Contract Compiler v2 adds deterministic parsing, tenant-bound selector preflight,
 static analysis and structured clarification results. See [compiler API and evaluation](docs/compiler-v2.md).
 
+The [Provider Adapter SDK](docs/provider-sdk.md) supplies one registry for compilation, verification, connections and capabilities. See the [generated provider reference](docs/providers.md) for the shipped adapter declarations.
+
 **Independent outcome assurance for AI agents.**
 
 Managed Gmail/GitHub onboarding is available through **Assurance console → Connection Settings**. See [managed connection setup, APIs and migration](docs/managed-connections.md) for operator configuration and security boundaries.

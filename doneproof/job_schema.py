@@ -68,11 +68,5 @@ SCHEMA = (
 
 
 def migrate(con):
-    from .job_models import PROVIDER_LIMITS
     for statement in SCHEMA:
         con.execute(statement)
-    # Fixed deployment-wide limits coordinate all worker processes, not merely one event loop.
-    for provider, count in PROVIDER_LIMITS.items():
-        for slot in range(count):
-            con.execute(f"INSERT INTO verification_provider_slots(provider,slot) VALUES('{provider}',{slot}) "
-                        "ON CONFLICT(provider,slot) DO NOTHING")

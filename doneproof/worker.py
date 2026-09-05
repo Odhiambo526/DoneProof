@@ -11,7 +11,7 @@ from .job_models import TERMINAL
 from .job_store import JobStore, evaluation_inputs
 from .pipeline import ObservationRecord
 from .recovery_store import RecoveryStore
-from .retries import POLICIES, TransientObservationError
+from .retries import TransientObservationError
 
 logger = logging.getLogger("doneproof.worker")
 
@@ -19,6 +19,8 @@ logger = logging.getLogger("doneproof.worker")
 class VerificationWorker:
     def __init__(self, store, engine, callbacks=None, *, batch_size=16, callback_transport=None, recovery=None):
         self.db = JobStore(store)
+        if any(engine.registry.require(d.manifest.provider_id).fingerprint != d.fingerprint for d in store.registry):
+            raise ValueError("Worker and storage provider registries must match")
         self.engine = engine
         self.recovery = recovery or RecoveryStore(store)
         self.callbacks = callbacks or CallbackRegistry({})
@@ -32,7 +34,7 @@ class VerificationWorker:
             observation = await self.engine.observe(pc, contract, job["tenant_id"], durable=True)
             return claim, observation.checkpoint(), None, 0
         except TransientObservationError as exc:
-            return claim, None, exc, POLICIES[pc.provider].delay(claim["attempts"], exc.retry_after)
+            return claim, None, exc, self.db.registry.policy(pc.provider).delay(claim["attempts"], exc.retry_after)
 
     async def _observe(self, job):
         claims = self.db.claim_conditions(job, self.batch_size, self.lease_seconds)

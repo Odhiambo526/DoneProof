@@ -3,20 +3,18 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import re
 import secrets
 import time
-from dataclasses import replace
 from urllib.parse import urlsplit
 
 import httpx
 
 from .adapters.base import ProviderAdapter, ProviderObservation
-from .adapters.github import GitHubAdapter
-from .adapters.gmail import GmailAdapter
 from .connection_crypto import CredentialVault
 from .connection_providers import OAuthProviders, ProviderFailure
 from .connection_store import ConnectionStore
+from .provider_registry import default_registry
+from .provider_sdk import AdapterRuntime
 from .retries import TransientObservationError, durable_observation, transient_response
 
 
@@ -29,11 +27,12 @@ class ConnectionConflict(Exception):
 
 
 class ConnectionService:
-    def __init__(self, store, settings, transport=None):
+    def __init__(self, store, settings, transport=None, registry=None):
+        self.registry = registry or getattr(store, "registry", None) or default_registry()
         self.db = ConnectionStore(store)
         self.settings = settings
         self.vault = CredentialVault(settings.connection_encryption_keys, settings.connection_active_key)
-        self.providers = OAuthProviders(settings, transport)
+        self.providers = OAuthProviders(settings, transport, self.registry)
         self.validate_configuration()
         self.import_legacy()
 
@@ -52,11 +51,8 @@ class ConnectionService:
                     or not parts.netloc or parts.username or parts.password or parts.query or parts.fragment
                     or parts.path not in {"", "/"}):
                 raise RuntimeError("DONEPROOF_PUBLIC_URL must be a fixed HTTPS origin")
-        for client_id in (self.settings.google_client_id, self.settings.github_client_id):
-            if client_id and not re.fullmatch(r"[A-Za-z0-9_.-]{1,256}", client_id):
-                raise RuntimeError("Invalid OAuth client identifier")
-        if self.settings.github_app_slug and not re.fullmatch(r"[a-zA-Z0-9-]{1,100}", self.settings.github_app_slug):
-            raise RuntimeError("Invalid GitHub App slug")
+        for definition in self.registry:
+            definition.validate_configuration(self.settings)
 
     def configured(self, provider):
         return bool(self.vault.available and self.settings.connection_public_url
@@ -67,18 +63,7 @@ class ConnectionService:
 
     def import_legacy(self):
         # One-time, explicitly scoped import. No runtime environment fallback.
-        imports = [(tenant, "gmail", token) for tenant, token in self.settings.gmail_tokens.items()]
-        if self.settings.gmail_access_token or self.settings.github_token:
-            tenants = set(self.settings.api_keys.values()) | set(self.settings.connection_admin_keys.values())
-            tenant = self.settings.legacy_connection_tenant
-            if not tenant:
-                tenant = next(iter(tenants)) if len(tenants) == 1 else ("default" if not tenants else None)
-            if not tenant:
-                raise RuntimeError("Global legacy tokens require DONEPROOF_LEGACY_CONNECTION_TENANT")
-            if self.settings.gmail_access_token and tenant not in self.settings.gmail_tokens:
-                imports.append((tenant, "gmail", self.settings.gmail_access_token))
-            if self.settings.github_token:
-                imports.append((tenant, "github", self.settings.github_token))
+        imports = [item for d in self.registry for item in d.legacy_credentials(self.settings)]
         if imports and not self.vault.available:
             raise RuntimeError("Legacy connector import requires connection encryption keys")
         for tenant, provider, token in imports:
@@ -117,7 +102,7 @@ class ConnectionService:
             verifier = self.vault.decrypt(row, entry["verifier_ciphertext"], "oauth")["verifier"]
             credentials = await self.providers.exchange(provider, code, verifier, entry["redirect_uri"])
             # Require offline access for managed Gmail onboarding; an access-only grant cannot refresh.
-            if provider == "gmail" and not credentials.get("refresh_token"):
+            if self.registry.require(provider).manifest.authentication.refresh_required and not credentials.get("refresh_token"):
                 raise ProviderFailure("offline_access_required", True)
             account_id, label = await self.providers.identity(provider, credentials)
             if row["account_id"] and row["account_id"] != account_id and row["credential_ciphertext"]:
@@ -161,6 +146,9 @@ class ConnectionService:
             self.db.queue_revocation(row, self.vault.encrypt(row, credentials))
 
     async def usable(self, tenant, provider, *, check_health=False):
+        definition = self.registry.get(provider)
+        if not definition or not definition.connection_factory:
+            return None
         # Leases coordinate refresh across processes. A disconnected or superseded generation always wins.
         for _ in range(20):
             row = self.db.get(tenant, provider=provider)
@@ -261,10 +249,13 @@ class ConnectionService:
         return self.db.get(tenant, connection_id=connection_id)
 
     def capability(self, tenant, provider):
+        definition = self.registry.get(provider)
+        if not definition or not definition.connection_factory:
+            return "configuration_required"
         row = self.db.get(tenant, provider=provider)
         if not row:
             # Existing unauthenticated public GitHub reads remain compatible.
-            return "available" if provider == "github" else "configuration_required"
+            return "available" if definition.manifest.authentication.public_read else "configuration_required"
         if row["state"] == "disabled":
             return "disabled"
         if not self.vault.available or not row["credential_ciphertext"] or not row["account_id"]:
@@ -282,6 +273,7 @@ class ManagedAdapter(ProviderAdapter):
     def __init__(self, service, provider):
         self.service = service
         self.provider = provider
+        self.definition = service.registry.require(provider)
 
     @staticmethod
     def unavailable():
@@ -291,8 +283,8 @@ class ManagedAdapter(ProviderAdapter):
     async def observe(self, selector, context):
         service = self.service
         initial = service.db.get(context.tenant_id, provider=self.provider)
-        if not initial and self.provider == "github":
-            identity = "github:public"
+        if not initial and self.definition.manifest.authentication.public_read:
+            identity = self.provider + ":public"
             row, credentials = None, None
         else:
             resolved = await service.usable(context.tenant_id, self.provider)
@@ -317,14 +309,8 @@ class ManagedAdapter(ProviderAdapter):
                 auth_failed = True
 
         # Per-request adapter and client credentials: never mutate shared adapter state.
-        if self.provider == "github":
-            adapter = GitHubAdapter(token=credentials["access_token"] if credentials else None,
-                                    transport=service.providers.transport, allow_env=False,
-                                    response_hooks=[response_hook])
-        else:
-            scoped = replace(service.settings, gmail_access_token=None,
-                             gmail_tokens={context.tenant_id: credentials["access_token"]})
-            adapter = GmailAdapter(scoped, transport=service.providers.transport, response_hooks=[response_hook])
+        adapter = self.definition.build(AdapterRuntime(service.settings, service.db.store,
+            context.tenant_id, credentials, service.providers.transport, (response_hook,)))
         try:
             observation = await adapter.observe(selector, context)
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
@@ -348,7 +334,7 @@ class ManagedAdapter(ProviderAdapter):
         if not authority:
             return False
         if authority.get("mode") == "public":
-            return self.provider == "github" and current is None
+            return self.definition.manifest.authentication.public_read and current is None
         return bool(current and current["state"] == "connected"
                     and current["id"] == authority.get("connection_id")
                     and current["revision"] == authority.get("revision"))

@@ -22,6 +22,16 @@ class ObservationRecord(BaseModel):
 
     def checkpoint(self):
         paths = set(self.redacted_paths)
+        import copy
+        state = copy.deepcopy(self.state)
+        # Provider sensitivity can only add redaction, never relax global secret filtering.
+        for path in paths:
+            target = state
+            parts = path.split(".")
+            for part in parts[:-1]:
+                target = target.get(part) if isinstance(target, dict) else None
+            if isinstance(target, dict) and parts[-1] in target:
+                target[parts[-1]] = "[redacted]"
         def walk(value, prefix=""):
             if isinstance(value, dict):
                 for key, item in value.items():
@@ -41,7 +51,7 @@ class ObservationRecord(BaseModel):
                 source = urlunsplit((parts.scheme, parts.netloc.rsplit("@", 1)[-1], parts.path, "", "")) if parts.scheme in {"https", "http"} else None
             except ValueError:
                 source = None
-        return self.model_copy(update={"state": sanitize(self.state), "redacted_paths": sorted(paths), "source_url": source})
+        return self.model_copy(update={"state": sanitize(state), "redacted_paths": sorted(paths), "source_url": source})
 
     def predicate_is_redacted(self, path):
         path = ".".join(part.strip() for part in path.split("."))

@@ -11,6 +11,7 @@ from .compiler import AstraCompiler, InvalidCandidate, ModelUnavailable
 from .contract_analysis import analyze, consistency_problems, safe_context, sensitive
 from .domain import CompletionContract
 from .intent import fast_candidate
+from .provider_registry import default_registry
 
 STAGES = ["intent_decomposition", "capability_resolution", "candidate_contract", "static_validation",
           "selector_resolution", "ambiguity_assessment", "final_contract"]
@@ -20,7 +21,8 @@ REPAIRABLE = {"invalid_candidate", "incomplete_intent", "duplicate_conditions", 
 
 class ContractCompiler:
     def __init__(self, settings, resolver):
-        self.model = AstraCompiler(settings)
+        self.registry = getattr(resolver, "registry", None) or default_registry()
+        self.model = AstraCompiler(settings, self.registry)
         self.resolver = resolver
         self.ordinary_effort = settings.compiler_reasoning_effort
         if self.ordinary_effort not in {"low", "medium"}:
@@ -43,16 +45,19 @@ class ContractCompiler:
     async def _compile(self, task, context, tenant, task_started_at, usage):
         if sensitive(task, context):
             return self._result([issue("sensitive_input")])
-        context = safe_context(context)
-        candidate = fast_candidate(task, context)
+        context = safe_context(context, self.registry)
+        candidate = fast_candidate(task, context, self.registry)
         deterministic = candidate is not None
         # Obvious unsupported integrations need no model call and no network discovery.
-        if candidate is None and re.search(r"(?i)\b(slack|notion|salesforce|jira|asana|trello|outlook|exchange|arbitrary.url)\b", task):
+        unsupported = {"slack", "notion", "salesforce", "jira", "asana", "trello", "outlook", "exchange"} - {
+            d.manifest.provider_id for d in self.registry}
+        if candidate is None and (any(re.search(r"(?i)\b" + name + r"\b", task) for name in unsupported)
+                                  or re.search(r"(?i)arbitrary.url", task)):
             return self._result([issue("unsupported_provider", "unsupported_provider")])
         capabilities = await self.resolver.capabilities(tenant)
         problems = []
         if deterministic:
-            problems = analyze(candidate, task, context)
+            problems = analyze(candidate, task, context, self.registry)
         else:
             for attempt, effort in enumerate([self.ordinary_effort, "high", "xhigh"]):
                 if attempt:
@@ -62,7 +67,7 @@ class ContractCompiler:
                     async with self.model_limit:
                         candidate = await self.model.propose(task, context, capabilities, effort,
                             sorted({p.code for p in problems}), usage)
-                    problems = analyze(candidate, task, context)
+                    problems = analyze(candidate, task, context, self.registry)
                 except ModelUnavailable:
                     return self._result([self._unparsed_issue(task)], usage=usage, deterministic=False)
                 except InvalidCandidate:

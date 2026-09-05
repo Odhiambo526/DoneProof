@@ -49,6 +49,7 @@ def test_older_worker_cannot_discard_new_receipt_fields_at_signing_handoff(conne
 def test_additive_migration_preserves_production_bytes_and_enrolls_legacy_receipt(connection_settings, monkeypatch):
     with monkeypatch.context() as patch:
         patch.setattr(store_module, "migrate_recovery", lambda con: None)
+        patch.setattr(store_module, "migrate_providers", lambda con, **kwargs: None)
         legacy = Store(connection_settings.storage_dsn)
     contract = CompletionContract.model_validate(LEGACY["contract"])
     receipt = VerificationReceipt.model_validate(LEGACY["receipt"])

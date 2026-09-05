@@ -85,6 +85,8 @@ def register_job_routes(app):
             # A completed /v1/runs registration owns the temporal boundary and captured baselines.
             baselines = await asyncio.to_thread(app.state.store.get_baselines, ctx.tenant_id, req.registered_contract_id)
             assurance = "registered"
+        if not app.state.providers.accepts(contract):
+            raise HTTPException(422, "Contract contains a provider not installed in this deployment")
         try:
             row, created = await asyncio.to_thread(db.create, ctx.tenant_id, key, request_hash, contract, baselines,
                                                    assurance, req.deadline_seconds, callback)

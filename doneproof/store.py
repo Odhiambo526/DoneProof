@@ -12,6 +12,8 @@ from typing import Any
 from .connection_store import migrate as migrate_connections
 from .domain import CompletionContract, VerificationReceipt
 from .job_schema import migrate as migrate_jobs
+from .provider_schema import migrate as migrate_providers
+from .provider_schema import synchronize_slots
 from .recovery_schema import migrate as migrate_recovery
 
 
@@ -26,7 +28,9 @@ class Store:
     deployments should provide DATABASE_URL with a PostgreSQL connection string.
     """
 
-    def __init__(self, dsn: str):
+    def __init__(self, dsn: str, registry=None):
+        from .provider_registry import default_registry
+        self.registry = registry or default_registry()
         self.dsn = dsn
         self.backend = "postgresql" if _is_postgres(dsn) else "sqlite"
         if self.backend == "sqlite":
@@ -148,6 +152,8 @@ class Store:
             migrate_connections(con)
             migrate_jobs(con)
             migrate_recovery(con)
+            migrate_providers(con, pg=False)
+            synchronize_slots(con, self.registry, pg=False)
 
     def _migrate_contract_primary_key(self, con: sqlite3.Connection) -> None:
         """Upgrade legacy global contract IDs to tenant-scoped IDs without losing data."""
@@ -274,6 +280,10 @@ class Store:
                     "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
                     (4, datetime.now(timezone.utc).isoformat()),
                 )
+                migrate_providers(con, pg=True)
+                synchronize_slots(con, self.registry, pg=True)
+                cur.execute("INSERT INTO schema_migrations(version,applied_at) VALUES(%s,%s) ON CONFLICT DO NOTHING",
+                            (5, datetime.now(timezone.utc).isoformat()))
 
     # ------------------------------- Shared -------------------------------
     def ping(self) -> bool:

@@ -6,26 +6,29 @@ import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from jsonschema import Draft202012Validator
+
 from .adapters.base import ObservationContext
 from .compilation_models import SelectorCheck, issue
-from .contract_analysis import ID
+from .provider_registry import default_registry
 
 
 class SelectorResolver:
-    def __init__(self, adapters, connections, settings):
+    def __init__(self, adapters, connections, settings, registry=None):
         self.adapters, self.connections, self.settings = adapters, connections, settings
-        self.limits = {"github": asyncio.Semaphore(4), "gmail": asyncio.Semaphore(2), "webhook": asyncio.Semaphore(4)}
+        self.registry = registry or getattr(connections, "registry", None) or default_registry()
+        self.limits = {d.manifest.provider_id: asyncio.Semaphore(d.manifest.rate_limit.preflight_concurrency) for d in self.registry}
 
     async def capabilities(self, tenant):
         result = {}
-        for provider in ("github", "gmail"):
-            state = self.connections.capability(tenant, provider)
-            if state == "configuration_required":
+        for definition in self.registry:
+            provider = definition.manifest.provider_id
+            state = self.registry.capability(tenant, provider, self.connections, self.settings)
+            if state == "configuration_required" and definition.connection_factory:
                 # An expired access token with a usable refresh token is recoverable.
                 await self.connections.usable(tenant, provider)
                 state = self.connections.capability(tenant, provider)
             result[provider] = state
-        result["webhook"] = "available" if any(s.tenant_id == tenant for s in self.settings.webhook_sources.values()) else "configuration_required"
         return result
 
     async def resolve(self, candidate, tenant, capabilities):
@@ -48,20 +51,21 @@ class SelectorResolver:
                     issue(code, category or "unverifiable_outcome", ids=ids) if category else None)
         if capabilities.get(pc.provider) != "available":
             return result("unavailable", "provider_unavailable", "unverifiable_outcome")
-        if pc.provider == "webhook":
-            source = self.settings.webhook_sources.get(pc.selector.get("source"))
-            if source is None or source.tenant_id != tenant:
+        definition = self.registry.require(pc.provider)
+        discovery_spec = definition.manifest.discovery
+        if discovery_spec.event_driven:
+            if not definition.event_selector_allowed(tenant, pc.selector, self.settings):
                 return result("unavailable", "provider_unavailable", "unverifiable_outcome")
             if mode != "event":
                 return result("unavailable", "unsupported_outcome", "unverifiable_outcome")
             return result("deferred", "future_discovery")
         adapter = self.adapters[pc.provider]
         selector = dict(pc.selector)
-        discovery = selector.get("number" if pc.provider == "github" else "message_id") is None
-        if discovery:
+        discovery = discovery_spec.is_discovery(selector)
+        if discovery and discovery_spec.boundary_field:
             # Existing-resource search starts at the epoch and must prove bounded
             # search completeness. The adapter returns UNKNOWN if the budget is exhausted.
-            selector["created_after"] = now if mode == "create" else "1970-01-01T00:00:00+00:00"
+            selector[discovery_spec.boundary_field] = now if mode == "create" else "1970-01-01T00:00:00+00:00"
         if mode == "create" and not discovery:
             return result("unavailable", "impossible_selector", "unverifiable_outcome")
         context = ObservationContext(tenant_id=tenant, contract_id="preflight_" + uuid4().hex,
@@ -83,20 +87,22 @@ class SelectorResolver:
             return result("deferred", "future_discovery")
         if not isinstance(state, dict):
             return result("missing", "resource_not_found", "missing_identifier")
-        key = "number" if pc.provider == "github" else "message_id"
+        key = discovery_spec.identity_field
         value = state.get(key)
-        valid_id = (type(value) is int and 0 < value < 2**53) if pc.provider == "github" else (isinstance(value, str) and bool(ID.fullmatch(value)))
+        valid_id = Draft202012Validator(discovery_spec.identity_schema).is_valid(value)
+        if discovery_spec.identity_schema.get("type") == "integer":
+            valid_id = valid_id and type(value) is int
         if not valid_id or (not discovery and pc.selector[key] != value):
             return result("missing", "resource_not_found", "missing_identifier")
         if discovery:
             for field, expected in pc.selector.items():
-                if field in {"repo", "kind"}:
+                if field in discovery_spec.scope_fields:
                     continue
                 actual = state.get(field)
                 matches = expected in actual if isinstance(actual, list) else actual == expected
                 if not matches:
                     return result("unavailable", "provider_unavailable", "unverifiable_outcome")
-            pinned = {"repo": pc.selector["repo"], "kind": pc.selector["kind"], "number": value} if pc.provider == "github" else {"message_id": value}
+            pinned = {**{key: pc.selector[key] for key in discovery_spec.scope_fields}, key: value}
             for target in pcs:
                 target.selector = dict(pinned)
         return result("resolved", "preflight_only")

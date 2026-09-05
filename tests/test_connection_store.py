@@ -96,6 +96,7 @@ def test_baseline_bindings_are_tenant_condition_and_provider_scoped(connection_s
 def test_migration_is_additive_idempotent_and_preserves_signed_data(connection_settings, monkeypatch):
     # First initialize exactly the previous schema, then apply the new migration.
     monkeypatch.setattr("doneproof.store.migrate_connections", lambda con: None)
+    monkeypatch.setattr("doneproof.store.migrate_providers", lambda con, **kwargs: None)
     original = Store(connection_settings.storage_dsn)
     contract = CompletionContract.model_validate({"task": "Existing production run", "postconditions": [{
         "id": "p1", "description": "existing condition", "provider": "github",
