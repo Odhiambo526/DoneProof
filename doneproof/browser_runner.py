@@ -80,13 +80,33 @@ class ChromiumObserver:
                     if frame == page.main_frame and frame.url != check.url else None)
             try:
                 await page.goto(check.url, wait_until="networkidle", timeout=6500)
+                # Sampling alone can alias an oscillating UI. Retain a bounded flag
+                # for relevant mutations, including changes that revert between samples.
+                watch = await page.evaluate_handle("""({marker, selector}) => {
+                    const roots=[document.querySelector(marker),document.querySelector(selector)].filter(Boolean);
+                    const state={changed:false};
+                    const inspect=records=>{
+                        if(state.changed) return;
+                        state.changed=records.some(r=>roots.some(root=>
+                            r.target===root || root.contains(r.target) ||
+                            (r.type==='attributes' && r.target.contains(root)) ||
+                            [...r.removedNodes].some(n=>n===root || n.contains(root)) ||
+                            [...r.addedNodes].some(n=>n.nodeType===1 &&
+                                (n.matches(marker) || n.matches(selector) || n.querySelector(marker) || n.querySelector(selector)))
+                        ));
+                    };
+                    const observer=new MutationObserver(inspect);
+                    observer.observe(document,{subtree:true,childList:true,characterData:true,attributes:true});
+                    state.finish=()=>{inspect(observer.takeRecords());observer.disconnect();return state.changed};
+                    return state;
+                }""", {"marker": check.page_marker, "selector": check.selector})
                 states = []
                 for _ in range(3):
                     states.append(await self.sample(page, check))
                     await asyncio.sleep(0.15)
                 if failure:
                     raise BrowserUnavailable(failure[0])
-                if len(set(states)) != 1:
+                if len(set(states)) != 1 or await watch.evaluate("w => w.changed"):
                     raise BrowserUnavailable("unstable_ui")
                 target = page.locator(check.selector)
                 box = await target.bounding_box()
@@ -95,7 +115,8 @@ class ChromiumObserver:
                 png = await target.screenshot(type="png", animations="disabled", timeout=2000)
                 if len(png) > 65536:
                     raise BrowserUnavailable("screenshot_unavailable")
-                if await self.sample(page, check) != states[0] or failure:
+                changed = await self.sample(page, check) != states[0] or await watch.evaluate("w => w.finish()")
+                if changed or failure:
                     raise BrowserUnavailable(failure[0] if failure else "unstable_ui")
                 return BrowserCapture(states[0], png)
             except BrowserUnavailable:
@@ -129,7 +150,13 @@ class ChromiumObserver:
                 const center=document.elementFromPoint(b.x+b.width/2,b.y+b.height/2);
                 const unsafe=el.matches('input,textarea,select,canvas,img,video,svg,[contenteditable]') ||
                     el.querySelector('input,textarea,select,canvas,img,video,svg,[contenteditable]');
-                return {text:el.innerText.slice(0,121), safe:!unsafe && s.opacity === '1' &&
+                let visible=true;
+                for(let p=el;p;p=p.parentElement){
+                    const c=getComputedStyle(p);
+                    if(c.opacity!=='1' || c.visibility!=='visible' || c.filter!=='none' || c.clipPath!=='none' ||
+                        p.getAnimations().some(a=>a.playState==='running')) visible=false;
+                }
+                return {text:el.innerText.slice(0,121), safe:visible && !unsafe && s.opacity === '1' &&
                     s.visibility === 'visible' && s.backgroundImage === 'none' &&
                     ['none','normal'].includes(getComputedStyle(el,'::before').content) &&
                     ['none','normal'].includes(getComputedStyle(el,'::after').content) &&

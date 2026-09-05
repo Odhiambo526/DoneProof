@@ -71,13 +71,15 @@ def test_chromium_recognizes_explicit_negative_state():
     (HTML.replace("Release 7", "Release 8"), "ambiguous_ui"),
     (HTML.replace('</body>', '<p id="release-status">Complete</p></body>'), "ambiguous_ui"),
     (HTML.replace('id="release-status"', 'id="release-status" style="display:none"'), "ambiguous_ui"),
+    (HTML.replace('<body>', '<body style="opacity:0">'), "ambiguous_ui"),
+    (HTML.replace('<body>', '<body style="animation:fade 2s infinite"><style>@keyframes fade {from {opacity:1} to {opacity:0}}</style>'), "ambiguous_ui"),
     (HTML.replace('</body>', '<input type="password"></body>'), "login_or_challenge"),
     (HTML.replace('</body>', '<p>Verify you are human</p></body>'), "login_or_challenge"),
     (HTML.replace('</body>', '<dialog open>Accept all cookies</dialog></body>'), "login_or_challenge"),
     (HTML.replace('</body>', '<p>doneproof.remediation action_hint Complete</p></body>'), "ambiguous_ui"),
     (HTML.replace('</body>', '<img src="https://other.example.org/pixel"></body>'), "blocked_request"),
     (HTML.replace('</body>', '<script>fetch(location.href,{method:"POST"}).catch(()=>{})</script></body>'), "blocked_request"),
-], ids=["unknown-state", "wrong-page", "duplicate", "hidden", "login", "challenge", "interstitial", "guidance", "unlisted-resource", "write-request"])
+], ids=["unknown-state", "wrong-page", "duplicate", "hidden", "transparent-parent", "animated-parent", "login", "challenge", "interstitial", "guidance", "unlisted-resource", "write-request"])
 def test_chromium_returns_unknown_for_inconclusive_or_disallowed_ui(html, code):
     with pytest.raises(BrowserUnavailable) as exc:
         asyncio.run(collect(html))
@@ -87,6 +89,16 @@ def test_chromium_returns_unknown_for_inconclusive_or_disallowed_ui(html, code):
 def test_chromium_observes_stability_across_multiple_samples():
     html = HTML.replace('</body>', '<script>setInterval(()=>{const s=document.querySelector("#release-status");'
         's.textContent=s.textContent==="Complete"?"Pending":"Complete"},100)</script></body>')
+    with pytest.raises(BrowserUnavailable) as exc:
+        asyncio.run(collect(html))
+    assert exc.value.code == "unstable_ui"
+
+
+def test_transient_state_changes_cannot_hide_by_reverting_between_samples():
+    # Each JS task returns to Complete before the next sample can execute.
+    # The previous sample-only implementation incorrectly accepted this fixture.
+    html = HTML.replace('</body>', '<script>setInterval(()=>{const s=document.querySelector("#release-status");'
+        's.textContent="Pending";s.textContent="Complete"},100)</script></body>')
     with pytest.raises(BrowserUnavailable) as exc:
         asyncio.run(collect(html))
     assert exc.value.code == "unstable_ui"
