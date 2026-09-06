@@ -116,7 +116,7 @@ export interface ClientOptions { apiKey: string; baseUrl?: string; timeout?: num
 export interface WaitOptions { timeout?: number; signal?: AbortSignal }
 export interface VerifyOptions extends WaitOptions { wait?: boolean; deadlineSeconds?: number; callbackId?: string }
 export interface ReverifyOptions extends VerifyOptions { previousReceiptId: string; idempotencyKey: string }
-export interface PrepareOptions extends WaitOptions { task: string; context?: Record<string, unknown>; idempotencyKey: string }
+export interface PrepareOptions extends WaitOptions { task: string; context?: Record<string, unknown>; requireTransition?: boolean; idempotencyKey: string }
 interface RequestOptions { body?: unknown; key?: string; end?: number; signal?: AbortSignal | undefined }
 
 export class DoneProof {
@@ -224,10 +224,18 @@ export class DoneProof {
 
 export class Assurance {
   constructor(private readonly client: DoneProof) {}
-  prepare(options: PrepareOptions): Promise<AssuranceSession> {
-    const body = { task: options.task, context: options.context ?? {} }; parseModel('PrepareSession', body);
-    return this.client.request('POST', '/v1/assurance/sessions', 'AssuranceSession', { body, key: mutationKey(options.idempotencyKey),
-      end: deadline(options.timeout ?? 150), signal: options.signal });
+  async prepare(options: PrepareOptions): Promise<AssuranceSession> {
+    const body = { task: options.task, context: options.context ?? {}, require_transition: options.requireTransition ?? false }; parseModel('PrepareSession', body);
+    const end = deadline(options.timeout ?? 150);
+    let result = await this.client.request('POST', '/v1/assurance/sessions', 'AssuranceSession', { body, key: mutationKey(options.idempotencyKey),
+      end, signal: options.signal });
+    let delay = 0.25;
+    while (result.state === 'PREPARING') {
+      await pause(delay * (0.5 + Math.random() / 2), end, options.signal);
+      result = await this.client.request('GET', '/v1/assurance/sessions/' + identifier(result.id), 'AssuranceSession', { end, signal: options.signal });
+      delay = Math.min(5, delay * 2);
+    }
+    return result;
   }
   get(id: string): Promise<AssuranceSession> { return this.client.request('GET', '/v1/assurance/sessions/' + identifier(id), 'AssuranceSession'); }
   async verify(id: string, options: VerifyOptions = {}): Promise<AssuranceSession> {

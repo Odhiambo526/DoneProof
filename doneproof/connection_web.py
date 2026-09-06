@@ -75,6 +75,14 @@ async function load() {
       connect.disabled = !provider.onboarding_available || Boolean(row && row.revocation_pending);
       if (!provider.onboarding_available) element('p', 'Your operator needs to configure OAuth onboarding for this provider.', card);
       if (row) {
+        if (provider.provider === 'github' && row.state === 'connected') {
+          button('Show authorized repositories', card, async () => {
+            const access = await api('/' + row.id + '/repositories');
+            element('p', 'Current access is planning information; verification independently reads the resource.', card);
+            if (!access.repositories.length) element('p', 'No repositories are accessible. Review the app installation and your GitHub permissions.', card);
+            for (const resource of access.repositories) element('p', resource.repository + (resource.private ? ' · private' : ' · public'), card);
+          });
+        }
         button('Check health', card, async () => { await api('/' + row.id + '/health', 'POST'); await load(); });
         button(row.revocation_pending ? 'Retry disconnect' : 'Disconnect', card, async () => {
           if (!window.confirm('Disconnect this account and revoke DoneProof access?')) return;

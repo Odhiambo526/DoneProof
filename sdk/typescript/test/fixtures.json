@@ -1,6 +1,7 @@
 {
   "fixture": true,
   "ready_session": {
+    "assurance": null,
     "baselines": [],
     "can_reverify": false,
     "compiler": {

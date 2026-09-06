@@ -50,6 +50,20 @@ class AuthorizationStart(BaseModel):
     authorization_url: str
 
 
+class GitHubRepository(BaseModel):
+    id: int
+    repository: str
+    private: bool
+    installation_id: int
+
+
+class RepositoryAccess(BaseModel):
+    connection_id: str
+    revision: int
+    repositories: list[GitHubRepository]
+    evidence: Literal[False] = False
+
+
 class CallbackQueryPrivacy:
     """Remove OAuth query credentials before application/access logging sees the scope."""
     def __init__(self, app):
@@ -168,6 +182,25 @@ def register_connection_routes(app):
         row = owned(tenant, connection_id)
         await service.usable(tenant, row["provider"], check_health=True)
         return service.db.public(owned(tenant, connection_id))
+
+    @app.get('/v1/connections/{connection_id}/repositories', response_model=RepositoryAccess, tags=['Connections'])
+    async def repositories(connection_id: str, tenant: str = Depends(administrator)):
+        from .provider_errors import ProviderFailure
+        row = owned(tenant, connection_id)
+        if row['provider'] != 'github':
+            raise HTTPException(422, 'Repository access discovery requires GitHub')
+        resolved = await service.usable(tenant, 'github', check_health=True)
+        if not resolved:
+            raise HTTPException(409, 'Connect a read-only GitHub App and authorize its installed repositories')
+        row, credentials = resolved
+        try:
+            resources = await service.providers.backend('github').repositories(credentials)
+        except ProviderFailure as exc:
+            raise HTTPException(503 if exc.transient else 409, 'Repository access could not be established') from None
+        current = owned(tenant, connection_id)
+        if current['revision'] != row['revision'] or current['state'] != 'connected':
+            raise HTTPException(409, 'Connection changed; reload and retry')
+        return {'connection_id': connection_id, 'revision': row['revision'], 'repositories': resources, 'evidence': False}
 
     @app.post("/v1/connections/{connection_id}/disconnect", response_model=ConnectionView, tags=["Connections"])
     async def disconnect(connection_id: str, tenant: str = Depends(administrator)):

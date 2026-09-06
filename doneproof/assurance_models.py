@@ -20,6 +20,31 @@ class PrepareSession(BaseModel):
     model_config = ConfigDict(extra='forbid')
     task: str = Field(min_length=3, max_length=4000)
     context: dict[str, JsonValue] = Field(default_factory=dict)
+    require_transition: bool = Field(default=False, strict=True)
+
+
+class AssuranceSummary(BaseModel):
+    level: Literal['submitted', 'registered', 'transition_assured']
+    required_conditions: int
+    transition_required: int
+    transitions_proven: int
+    lower_assurance_browser: bool
+    explanation: str
+
+
+def assurance_summary(receipt):
+    required = [r for r in receipt.results if r.required]
+    transitions = [r for r in required if r.transition_required]
+    proven = sum(r.status == 'PASS' and r.baseline_status == 'FAIL' for r in transitions)
+    registered = receipt.assurance_level == 'registered'
+    assured = registered and receipt.verdict == 'VERIFIED' and bool(transitions) and proven == len(transitions)
+    return AssuranceSummary(level='transition_assured' if assured else receipt.assurance_level,
+        required_conditions=len(required), transition_required=len(transitions),
+        transitions_proven=proven if registered else 0,
+        lower_assurance_browser=any(r.evidence.provenance for r in required),
+        explanation=('The requested transitions passed against trusted pre-execution baselines.' if assured else
+                     'A trusted boundary was registered; the receipt does not prove every requested transition.' if registered else
+                     'Submitted contract: no trusted pre-execution transition assurance.'))
 
 
 class VerifySession(ReverifyRequest):
@@ -94,6 +119,7 @@ class AssuranceSession(BaseModel):
     remediation: list[Remediation] = Field(default_factory=list)
     can_reverify: bool = False
     evidence: list[EvidenceAssurance] = Field(default_factory=list)
+    assurance: AssuranceSummary | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -112,6 +138,8 @@ class AssuranceSession(BaseModel):
             raise ValueError('Invalid clarification session')
         if self.verdict is not None and (not self.receipt or self.receipt.verdict != self.verdict):
             raise ValueError('Session verdict requires a matching receipt')
+        if self.assurance is not None and (not self.receipt or self.assurance != assurance_summary(self.receipt)):
+            raise ValueError('Assurance summary must match signed receipt facts')
         if self.receipt and any(r.evidence.provider == 'browser' and (
                 self.receipt.schema_version != '1.2' or not r.evidence.provenance) for r in self.receipt.results):
             raise ValueError('Browser receipt provenance is required')

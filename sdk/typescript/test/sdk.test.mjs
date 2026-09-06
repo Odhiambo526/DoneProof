@@ -95,3 +95,16 @@ test('No credential-bearing base URL or cross-origin custom transport path', asy
   const dp = new DoneProof({ apiKey: 'k' });
   await assert.rejects(dp.request('GET', '//evil.example.org', 'CapabilityResponse'), DoneProofError);
 });
+
+test('Preparation replay resumes the original session with bounded polling', async () => {
+  const seen = [];
+  const preparing = { ...ready, state: 'PREPARING', contract: null, compiler: null,
+    trusted_task_started_at: null, baselines: [], providers: [] };
+  const dp = new DoneProof({ apiKey: 'fixture-key', fetch: async (url, options) => {
+    seen.push(options.method);
+    return response(seen.length === 1 ? preparing : ready);
+  } });
+  const session = await dp.assurance.prepare({ task: ready.task, idempotencyKey: 'stable' });
+  assert.equal(session.id, ready.id); assert.equal(session.state, 'READY_FOR_EXECUTION');
+  assert.deepEqual(seen, ['POST', 'GET']);
+});

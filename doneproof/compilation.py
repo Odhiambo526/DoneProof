@@ -51,6 +51,8 @@ class ContractCompiler:
     async def _compile(self, task, context, tenant, task_started_at, usage):
         if sensitive(task, context):
             return self._result([issue("sensitive_input")])
+        if re.fullmatch(r'(?i)(?:send|move) Gmail draft [A-Za-z0-9_-]+(?: to Sent)?', task.strip().rstrip('.')):
+            return self._result([issue('gmail_draft_identity_changes', 'missing_identifier', fields=['subject', 'to'])])
         context = safe_context(context, self.registry)
         candidate = fast_candidate(task, context, self.registry)
         deterministic = candidate is not None

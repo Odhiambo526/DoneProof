@@ -27,7 +27,8 @@ class ProviderStub:
         self.token_data = {"access_token": ACCESS, "refresh_token": REFRESH, "expires_in": 3600,
                            "scope": GMAIL_SCOPE, "token_type": "Bearer"}
         self.installations = {"total_count": 1, "installations": [
-            {"permissions": {"issues": "read", "pull_requests": "read", "metadata": "read"}}]}
+            {"id": 1, "app_slug": "doneproof-test", "suspended_at": None,
+             "permissions": {"issues": "read", "pull_requests": "read", "metadata": "read"}}]}
         self.message_status = 200
         self.labels = ["SENT"]
         self.pause_refresh = None
@@ -60,6 +61,9 @@ class ProviderStub:
             return httpx.Response(self.status, json={"id": self.github_id, "login": "design-partner"})
         if path == "/user/installations":
             return httpx.Response(self.status, json=self.installations)
+        if path == '/user/installations/1/repositories':
+            return httpx.Response(self.status, json={'total_count': 1, 'repositories': [
+                {'id': 1234, 'full_name': 'example/project', 'private': True}]})
         if "/messages/" in path:
             if self.pause_observe:
                 await self.pause_observe()

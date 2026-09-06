@@ -42,6 +42,12 @@ button:hover{border-color:var(--blue)}button:disabled{opacity:.5;cursor:default}
 
 
 
+from .session_web import SESSION_PANEL  # noqa: E402
+
+CONSOLE_HTML = CONSOLE_HTML.replace('<div class="cards">', SESSION_PANEL + '<div class="cards">').replace(
+    '</body>', '<script src="/console/sessions.js" defer></script></body>')
+
+
 def certificate_html(receipt: VerificationReceipt) -> str:
     items = "".join(
         f"<tr><td>{html.escape(r.description)}</td><td><b>{html.escape(r.status.value)}</b></td><td>{html.escape(r.evidence.provider)}{' · browser UI, lower assurance' if r.evidence.provenance else ''}</td></tr>"

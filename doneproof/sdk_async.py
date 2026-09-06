@@ -209,10 +209,18 @@ class Assurance:
         self._client = client
 
     async def prepare(self, *, task: str, idempotency_key: str, context: dict[str, JsonValue] | None = None,
-                      timeout: float = 150, cancellation: Cancellation | None = None) -> AssuranceSession:
-        return await self._client._request('POST', '/v1/assurance/sessions', AssuranceSession,
-            body=payload(PrepareSession, task=task, context=context or {}), key=mutation_key(idempotency_key),
-            until=time.monotonic() + duration(timeout), cancellation=cancellation)
+                      require_transition: bool = False, timeout: float = 150, cancellation: Cancellation | None = None) -> AssuranceSession:
+        until = time.monotonic() + duration(timeout)
+        result = await self._client._request('POST', '/v1/assurance/sessions', AssuranceSession,
+            body=payload(PrepareSession, task=task, context=context or {}, require_transition=require_transition), key=mutation_key(idempotency_key),
+            until=until, cancellation=cancellation)
+        delay = 0.25
+        while result.state == 'PREPARING':
+            await self._client._sleep(delay * random.uniform(0.5, 1), until, cancellation)
+            result = await self._client._request('GET', '/v1/assurance/sessions/' + identifier(result.id),
+                AssuranceSession, until=until, cancellation=cancellation)
+            delay = min(5, delay * 2)
+        return result
 
     async def get(self, session_id: str) -> AssuranceSession:
         return await self._client._request('GET', '/v1/assurance/sessions/' + identifier(session_id), AssuranceSession)
