@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import signal
+import time
 from datetime import datetime, timezone
 
 from .job_callbacks import CallbackRegistry
@@ -17,17 +20,24 @@ logger = logging.getLogger("doneproof.worker")
 
 
 class VerificationWorker:
-    def __init__(self, store, engine, callbacks=None, *, batch_size=16, callback_transport=None, recovery=None):
+    def __init__(self, store, engine, callbacks=None, *, batch_size=16, callback_transport=None, recovery=None,
+                 exclude_providers=(), require_providers=()):
         self.db = JobStore(store)
         if any(engine.registry.require(d.manifest.provider_id).fingerprint != d.fingerprint for d in store.registry):
             raise ValueError("Worker and storage provider registries must match")
         self.engine = engine
+        self.exclude_providers, self.require_providers = tuple(exclude_providers), tuple(require_providers)
+        for provider in (*self.exclude_providers, *self.require_providers):
+            self.db.registry.require(provider)
+        if set(self.exclude_providers) & set(self.require_providers):
+            raise ValueError("Worker provider routing overlaps")
         self.recovery = recovery or RecoveryStore(store)
         self.callbacks = callbacks or CallbackRegistry({})
         self.batch_size = max(1, min(batch_size, 64))
         # A whole batch is concurrent and bounded by one observation timeout. The grace covers DB/CPU work.
         self.lease_seconds = max(90, engine.timeout_seconds + 60)
         self.callback_transport = callback_transport
+        self.health = None
 
     async def _one(self, job, contract, pc, claim):
         try:
@@ -37,7 +47,7 @@ class VerificationWorker:
             return claim, None, exc, self.db.registry.policy(pc.provider).delay(claim["attempts"], exc.retry_after)
 
     async def _observe(self, job):
-        claims = self.db.claim_conditions(job, self.batch_size, self.lease_seconds)
+        claims = await asyncio.to_thread(self.db.claim_conditions, job, self.batch_size, self.lease_seconds)
         contract, _, _ = evaluation_inputs(job)
         pcs = {pc.id: pc for pc in contract.postconditions}
         tasks = [asyncio.create_task(self._one(job, contract, pcs[c["condition_id"]], c)) for c in claims]
@@ -45,16 +55,16 @@ class VerificationWorker:
             pending = set(tasks)
             while pending:
                 _, pending = await asyncio.wait(pending, timeout=0.25)
-                if pending and not self.db.active(job):
+                if pending and not await asyncio.to_thread(self.db.active, job):
                     return
-            self.db.finish_observations(job, [task.result() for task in tasks])
+            await asyncio.to_thread(self.db.finish_observations, job, [task.result() for task in tasks])
         finally:
             for task in tasks:
                 if not task.done():
                     task.cancel()
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
-            self.db.release_slots(claims)
+            await asyncio.to_thread(self.db.release_slots, claims)
 
     def _evaluate(self, job):
         contract, baselines, created = evaluation_inputs(job)
@@ -69,30 +79,34 @@ class VerificationWorker:
         self.db.save_evaluation(job, receipt, self.engine.signer.key_id)
 
     async def tick(self):
-        job = self.db.claim(self.lease_seconds)
+        job = await asyncio.to_thread(self.db.claim, self.lease_seconds, exclude_providers=self.exclude_providers,
+                                      require_providers=self.require_providers)
         if not job:
             return False
+        started = time.perf_counter()
         try:
             if job["state"] == "OBSERVING":
                 await self._observe(job)
             elif job["state"] == "EVALUATING":
-                self._evaluate(job)
+                await asyncio.to_thread(self._evaluate, job)
             elif job["state"] == "SIGNING":
-                self.db.publish(job, self.engine)
+                await asyncio.to_thread(self.db.publish, job, self.engine)
         except asyncio.CancelledError:
-            self.db.abandon(job)
+            await asyncio.to_thread(self.db.abandon, job)
             raise
         except Exception as exc:
             # Provider error text can contain credentials. Log a fixed event and exception class only.
             logger.error("verification_job_error error_type=%s", type(exc).__name__)
-            self.db.fail_job(job)
+            await asyncio.to_thread(self.db.fail_job, job)
+        logger.info(json.dumps({"event": "worker_step", "job_id": job["id"], "stage": job["state"],
+                               "duration_ms": round((time.perf_counter() - started) * 1000, 2)}))
         return True
 
     async def recovery_tick(self):
         return await asyncio.to_thread(self.recovery.dispatch_event)
 
     async def callback_tick(self):
-        row = self.db.claim_callback()
+        row = await asyncio.to_thread(self.db.claim_callback)
         if not row:
             return False
         await self.callbacks.deliver(self.db, row, self.callback_transport)
@@ -110,7 +124,10 @@ class VerificationWorker:
     async def _loop(self, operation):
         while True:
             try:
-                if not await operation():
+                worked = await operation()
+                if self.health:
+                    self.health.update(operation.__name__)
+                if not worked:
                     await asyncio.sleep(0.25)
             except asyncio.CancelledError:
                 raise
@@ -128,7 +145,13 @@ class VerificationWorker:
 
 async def serve():
     from .app import app
-    worker = VerificationWorker(app.state.store, app.state.engine, app.state.job_callbacks, recovery=app.state.recovery)
+    from .worker_health import WorkerHealth
+    def providers(name):
+        return tuple(p.strip() for p in os.getenv(name, "").split(",") if p.strip())
+    worker = VerificationWorker(app.state.store, app.state.engine, app.state.job_callbacks, recovery=app.state.recovery,
+        exclude_providers=providers("DONEPROOF_WORKER_EXCLUDE_PROVIDERS"),
+        require_providers=providers("DONEPROOF_WORKER_REQUIRE_PROVIDERS"))
+    worker.health = WorkerHealth(os.getenv("DONEPROOF_WORKER_HEALTH_FILE", "/tmp/doneproof-worker-health.json"))
     task = asyncio.create_task(worker.run())
     loop = asyncio.get_running_loop()
     for name in (signal.SIGINT, signal.SIGTERM):
@@ -140,8 +163,10 @@ async def serve():
         await task
     except asyncio.CancelledError:
         pass
+    finally:
+        worker.health.remove()
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(level=logging.INFO if os.getenv("DONEPROOF_LOG_LEVEL") == "INFO" else logging.WARNING)
     asyncio.run(serve())

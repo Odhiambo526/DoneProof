@@ -3,22 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-import time
-from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .assurance_schema import migrate as migrate_assurance
-from .browser_artifacts import migrate as migrate_browser_artifacts
-from .connection_store import migrate as migrate_connections
 from .domain import CompletionContract, VerificationReceipt
-from .job_schema import migrate as migrate_jobs
-from .provider_schema import migrate as migrate_providers
-from .provider_schema import synchronize_slots
-from .recovery_schema import migrate as migrate_recovery
-
-SCHEMA_VERSION = 7
 
 
 def _is_postgres(dsn: str) -> bool:
@@ -32,9 +21,7 @@ class Store:
     deployments should provide DATABASE_URL with a PostgreSQL connection string.
     """
 
-    def __init__(self, dsn: str, registry=None):
-        from .provider_registry import default_registry
-        self.registry = registry or default_registry()
+    def __init__(self, dsn: str):
         self.dsn = dsn
         self.backend = "postgresql" if _is_postgres(dsn) else "sqlite"
         if self.backend == "sqlite":
@@ -61,30 +48,10 @@ class Store:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
     def _init_sqlite(self):
-        for attempt in range(6):
-            try:
-                self._init_sqlite_once()
-                return
-            except sqlite3.OperationalError as exc:
-                if getattr(exc, "sqlite_errorcode", None) not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED} or attempt == 5:
-                    raise
-                # Changing WAL mode can report BUSY immediately, even with busy_timeout.
-                time.sleep(0.05 * 2**attempt)
-
-    @staticmethod
-    def _sqlite_schema(con, script):
-        # These fixed DDL statements contain no semicolons inside string literals.
-        # executescript() implicitly commits and would release the migration lock.
-        for statement in script.split(";"):
-            if statement.strip():
-                con.execute(statement)
-
-    def _init_sqlite_once(self):
-        with closing(self._connect()) as con, con:
-            con.execute("PRAGMA journal_mode=WAL")
-            con.execute("BEGIN IMMEDIATE")
-            self._sqlite_schema(con,
+        with self._connect() as con:
+            con.executescript(
                 """
+                PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS contracts (
                     id TEXT NOT NULL,
                     task TEXT NOT NULL,
@@ -144,7 +111,7 @@ class Store:
             self._add_column_if_missing(con, "contracts", "tenant_id", "tenant_id TEXT NOT NULL DEFAULT 'default'")
             self._add_column_if_missing(con, "receipts", "tenant_id", "tenant_id TEXT NOT NULL DEFAULT 'default'")
             self._migrate_contract_primary_key(con)
-            self._sqlite_schema(con,
+            con.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_receipts_tenant_time ON receipts(tenant_id, verified_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_receipts_contract ON receipts(tenant_id, contract_id, verified_at DESC);
@@ -153,21 +120,13 @@ class Store:
                 """
             )
 
-            migrate_connections(con)
-            migrate_jobs(con)
-            migrate_recovery(con)
-            migrate_providers(con, pg=False)
-            migrate_browser_artifacts(con)
-            migrate_assurance(con)
-            synchronize_slots(con, self.registry, pg=False)
-
     def _migrate_contract_primary_key(self, con: sqlite3.Connection) -> None:
         """Upgrade legacy global contract IDs to tenant-scoped IDs without losing data."""
         info = con.execute("PRAGMA table_info(contracts)").fetchall()
         pk_cols = [row[1] for row in sorted((r for r in info if r[5]), key=lambda r: r[5])]
         if pk_cols != ["id"]:
             return
-        self._sqlite_schema(con,
+        con.executescript(
             """
             ALTER TABLE contracts RENAME TO contracts_legacy_global_pk;
             CREATE TABLE contracts (
@@ -265,54 +224,14 @@ class Store:
             with con.cursor() as cur:
                 # Serialize first-time schema bootstrap across concurrent cold starts.
                 cur.execute("SELECT pg_advisory_xact_lock(%s)", (0x444F4E4550524F4F,))
-                cur.execute("SELECT to_regclass('schema_migrations') AS existing")
-                if cur.fetchone()["existing"]:
-                    cur.execute("SELECT MAX(version) AS version FROM schema_migrations")
-                    if (cur.fetchone()["version"] or 0) > SCHEMA_VERSION:
-                        raise RuntimeError("Unsupported database schema version")
                 for statement in statements:
                     cur.execute(statement)
                 cur.execute(
                     "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
                     (1, datetime.now(timezone.utc).isoformat()),
                 )
-                migrate_connections(con)
-                cur.execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
-                    (2, datetime.now(timezone.utc).isoformat()),
-                )
-                migrate_jobs(con)
-                cur.execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
-                    (3, datetime.now(timezone.utc).isoformat()),
-                )
-                migrate_recovery(con)
-                cur.execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES(%s,%s) ON CONFLICT (version) DO NOTHING",
-                    (4, datetime.now(timezone.utc).isoformat()),
-                )
-                migrate_providers(con, pg=True)
-                synchronize_slots(con, self.registry, pg=True)
-                cur.execute("INSERT INTO schema_migrations(version,applied_at) VALUES(%s,%s) ON CONFLICT DO NOTHING",
-                            (5, datetime.now(timezone.utc).isoformat()))
-                migrate_browser_artifacts(con)
-                cur.execute("INSERT INTO schema_migrations(version,applied_at) VALUES(%s,%s) ON CONFLICT DO NOTHING",
-                            (6, datetime.now(timezone.utc).isoformat()))
-                migrate_assurance(con)
-                cur.execute("INSERT INTO schema_migrations(version,applied_at) VALUES(%s,%s) ON CONFLICT DO NOTHING",
-                            (7, datetime.now(timezone.utc).isoformat()))
 
     # ------------------------------- Shared -------------------------------
-    def schema_version(self):
-        if self.backend == "postgresql":
-            with self._pg_connect() as con:
-                versions = [r["version"] for r in con.execute("SELECT version FROM schema_migrations ORDER BY version")]
-            return SCHEMA_VERSION if versions == list(range(1, SCHEMA_VERSION + 1)) else None
-        # SQLite has historically used feature migrations without a version ledger.
-        with self._connect() as con:
-            return SCHEMA_VERSION if con.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='assurance_sessions'").fetchone() else None
-
     def ping(self) -> bool:
         if self.backend == "sqlite":
             with self._connect() as con:
@@ -573,15 +492,22 @@ class Store:
             payload_hash,
             now,
         )
-        from .recovery_store import RecoveryStore
-        db = RecoveryStore(self)
-        with db.transaction() as con:
-            cur = db.execute(con, """INSERT INTO evidence_events
-                (event_id,tenant_id,source,event_type,object_id,occurred_at,payload_json,payload_hash,received_at)
-                VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(event_id) DO NOTHING""", values)
-            inserted = cur.rowcount == 1
-            if inserted:
-                db.enqueue_event(con, tenant_id, source, event_type, object_id, event_id, payload)
+        if self.backend == "sqlite":
+            with self._connect() as con:
+                cur = con.execute(
+                    "INSERT OR IGNORE INTO evidence_events(event_id,tenant_id,source,event_type,object_id,occurred_at,payload_json,payload_hash,received_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                    values,
+                )
+                inserted = cur.rowcount == 1
+        else:
+            with self._pg_connect() as con:
+                with con.cursor() as cur:
+                    cur.execute(
+                        """INSERT INTO evidence_events(event_id,tenant_id,source,event_type,object_id,occurred_at,payload_json,payload_hash,received_at)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (event_id) DO NOTHING""",
+                        values,
+                    )
+                    inserted = cur.rowcount == 1
         return inserted, payload_hash
 
     def find_events(

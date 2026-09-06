@@ -42,7 +42,10 @@ def register_assurance_routes(app):
         allowed = {field for d in service.registry for field in d.manifest.context_fields}
         if set(req.context) - allowed or contains_credentials(req.context) or sensitive(req.task, req.context):
             raise HTTPException(422, 'Invalid assurance planning input')
-        return await service.prepare(ctx.tenant_id, key, req)
+        result = await service.prepare(ctx.tenant_id, key, req)
+        await asyncio.to_thread(app.state.store.audit, ctx.tenant_id, "assurance.request", "assurance_session",
+                                result.id, {"trace_id": request.state.trace_id, "operation": "prepare"})
+        return result
 
     @app.get('/v1/assurance/sessions/{identifier}', response_model=AssuranceSession, tags=['Assurance sessions'])
     async def session(identifier: str, ctx: TenantContext = Depends(require_tenant)):
@@ -51,7 +54,10 @@ def register_assurance_routes(app):
     async def schedule(identifier, request, ctx, key, reverify):
         session_key(key)
         req = await parse(request, ReverifySession if reverify else VerifySession, app.state.settings.max_body_bytes)
-        await asyncio.to_thread(service.verify_session, ctx.tenant_id, identifier, key, req, reverify=reverify)
+        job_id = await asyncio.to_thread(service.verify_session, ctx.tenant_id, identifier, key, req, reverify=reverify)
+        await asyncio.to_thread(app.state.store.audit, ctx.tenant_id, "assurance.request", "assurance_session",
+                                identifier, {"trace_id": request.state.trace_id, "job_id": job_id,
+                                             "operation": "reverify" if reverify else "verify"})
         return await asyncio.to_thread(service.view, ctx.tenant_id, identifier)
 
     @app.post('/v1/assurance/sessions/{identifier}/verify', response_model=AssuranceSession, status_code=202, tags=['Assurance sessions'],

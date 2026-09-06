@@ -81,13 +81,12 @@ class VerificationEngine:
         except asyncio.TimeoutError:
             if durable:
                 raise TransientObservationError("provider_timeout") from None
-            logger.warning("verification_timeout provider=%s contract_id=%s condition_id=%s", pc.provider, contract.id, pc.id)
+            logger.warning("verification_timeout provider=%s", pc.provider)
             return ObservationRecord(indeterminate=True, note="Verification timed out before authoritative state was established.")
         except Exception as exc:
             if durable and transient_exception(exc):
                 raise TransientObservationError() from None
-            logger.warning("verification_provider_error provider=%s contract_id=%s condition_id=%s error_type=%s",
-                           pc.provider, contract.id, pc.id, type(exc).__name__)
+            logger.warning("verification_provider_error provider=%s error_type=%s", pc.provider, type(exc).__name__)
             return ObservationRecord(indeterminate=True, note="Provider verification was unavailable or returned an invalid response.")
         finally:
             durable_observation.reset(token)

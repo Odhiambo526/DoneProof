@@ -43,10 +43,12 @@ from .job_api import register_job_routes
 from .job_callbacks import CallbackRegistry
 from .job_store import JobStore
 from .limits import SlidingWindowLimiter
+from .operations import readiness
 from .provider_registry import default_registry
 from .recovery_api import register_recovery_routes
 from .recovery_store import RecoveryStore
 from .recovery_web import RECOVERY_SCRIPT
+from .request_limits import RequestBodyLimit
 from .security import TenantContext, require_tenant
 from .selector_resolution import SelectorResolver
 from .signing import ReceiptSigner
@@ -81,6 +83,7 @@ def create_app(
         contact={"name": "DoneProof"},
     )
     app.state.settings = settings
+    app.add_middleware(RequestBodyLimit, max_bytes=settings.max_body_bytes)
     registry = provider_registry or default_registry(plugins=True)
     app.state.providers = registry
     app.state.store = Store(settings.storage_dsn, registry=registry)
@@ -138,6 +141,8 @@ def create_app(
             else f"req_{uuid.uuid4().hex[:16]}"
         )
         started = time.perf_counter()
+        trace_id = "trace_" + uuid.uuid4().hex
+        request.state.trace_id = trace_id
         if (
             request.url.path.startswith(("/v1/", "/v2/"))
             and not request.url.path.startswith("/v1/webhooks/")
@@ -175,12 +180,17 @@ def create_app(
             except ValueError:
                 pass
         response = await call_next(request)
+        logger.info(json.dumps({"event": "api_request", "trace_id": trace_id,
+            "route": getattr(request.scope.get("route"), "path", "unmatched"),
+            "method": request.method if request.method in {"GET", "POST", "DELETE", "OPTIONS"} else "other",
+            "status": response.status_code, "duration_ms": round((time.perf_counter() - started) * 1000, 2)}))
+        response.headers["X-DoneProof-Trace-ID"] = trace_id
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        response.headers["Cache-Control"] = "no-store" if request.url.path.startswith(("/v1", "/v2", "/connections")) else "public, max-age=300"
+        response.headers["Cache-Control"] = "no-store" if request.url.path.startswith(("/v1", "/v2", "/connections", "/ready", "/health")) else "public, max-age=300"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
         )
@@ -216,15 +226,7 @@ def create_app(
 
     @app.get("/ready", tags=["Operations"])
     def ready(request: Request):
-        db_ok = request.app.state.store.ping()
-        body = {
-            "ready": db_ok,
-            "database": "ready" if db_ok else "unavailable",
-            "storage_backend": request.app.state.store.backend,
-            "durable_storage": settings.durable_storage,
-            "environment": settings.env,
-            "warnings": [],
-        }
+        body = readiness(request.app)
         if not body["ready"]:
             return JSONResponse(status_code=503, content=body)
         return body

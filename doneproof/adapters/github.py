@@ -54,6 +54,7 @@ class GitHubAdapter(ProviderAdapter):
         return httpx.AsyncClient(
             timeout=12.0,
             follow_redirects=False,
+            trust_env=False,
             transport=self.transport,
             headers=self._headers(),
             event_hooks={"response": self.response_hooks},

@@ -10,6 +10,7 @@ import httpx
 from .compilation_models import Candidate
 from .config import Settings
 from .domain import CompletionContract
+from .http import bounded_request
 from .provider_registry import default_registry
 
 
@@ -182,8 +183,8 @@ class AstraCompiler:
         }
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         try:
-            async with httpx.AsyncClient(timeout=40, follow_redirects=False, transport=self.transport) as client:
-                r = await client.post("https://api.openai.com/v1/responses", headers=headers, json=payload)
+            async with httpx.AsyncClient(timeout=40, follow_redirects=False, transport=self.transport, trust_env=False) as client:
+                r = await bounded_request(client, "POST", "https://api.openai.com/v1/responses", headers=headers, json=payload)
             r.raise_for_status()
             data = r.json()
         except (httpx.HTTPError, ValueError):

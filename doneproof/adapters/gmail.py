@@ -25,6 +25,7 @@ class GmailAdapter(ProviderAdapter):
         return httpx.AsyncClient(
             timeout=15.0,
             follow_redirects=False,
+            trust_env=False,
             transport=self.transport,
             event_hooks={"response": self.response_hooks},
             headers={
