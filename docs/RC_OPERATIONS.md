@@ -60,6 +60,11 @@ not restart a container. Alert and explicitly restart a stuck service. Worker
 health measures freshness of all three local loops (verification/callback/recovery),
 not a successful external-provider probe. A stale health file expires after
 120 seconds and is removed on graceful shutdown. It contains no tenant evidence.
+Graceful worker shutdown drains the current verification, callback and recovery
+stage; it does not cancel a business verification job. This prevents an in-flight
+database thread from acquiring an orphaned lease after shutdown. Use the job
+cancellation API for cancellation semantics. A host kill after the grace period
+still relies on durable lease expiry and fencing; exercise it in hosted staging.
 `/ready` is uncached API readiness, checks the compatible schema, and explicitly
 reports remote workers as unobserved. Do not treat it as the release gate.
 
