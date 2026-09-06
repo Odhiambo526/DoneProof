@@ -87,7 +87,7 @@ class Rehearsal:
         self.pins = pins
         self.http = httpx.Client(base_url=base_url, headers={'X-DoneProof-Key': key}, timeout=20,
                                  follow_redirects=False, trust_env=False, transport=transport)
-        self.dp = DoneProof(api_key=key, base_url=base_url, transport=transport)
+        self.dp = DoneProof(api_key=key, base_url=base_url, timeout=120, transport=transport)
 
     def close(self):
         self.dp.close()
@@ -180,8 +180,11 @@ class Rehearsal:
     def positive(self, state, timeout=120):
         self.check_deployment()
         require(state['stage'] in {'NEGATIVE', 'COMPLETE'}, 'negative_control_required')
+        attempt = state.get('repair_attempt', 1)
+        require(type(attempt) is int and 1 <= attempt <= 100, 'invalid_repair_attempt')
+        key = 'rehearsal:' + state['id'] + ':positive' + (':' + str(attempt) if attempt > 1 else '')
         result = self.dp.assurance.reverify(state['session_id'], previous_receipt_id=state['negative_receipt_id'],
-            idempotency_key='rehearsal:' + state['id'] + ':positive', wait=True, timeout=timeout)
+            idempotency_key=key, wait=True, timeout=timeout)
         record = self.inspect_receipt(state, result, positive=True)
         state['receipts'], state['stage'] = [state['receipts'][0], record], 'COMPLETE'
         return result

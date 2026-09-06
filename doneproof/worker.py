@@ -164,6 +164,8 @@ class VerificationWorker:
 async def serve():
     from .app import app
     from .worker_health import WorkerHealth
+    if not hasattr(app.state, "store"):
+        raise SystemExit("DoneProof worker startup blocked; restore database/configuration and restart the worker.")
     def providers(name):
         return tuple(p.strip() for p in os.getenv(name, "").split(",") if p.strip())
     worker = VerificationWorker(app.state.store, app.state.engine, app.state.job_callbacks, recovery=app.state.recovery,

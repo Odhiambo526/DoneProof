@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--subject-prefix')
     parser.add_argument('--timeout', type=float, default=120)
     parser.add_argument('--allow-loopback', action='store_true')
+    parser.add_argument('--repair-attempt', type=int, help='Explicit new operation identity after an expired/infrastructure attempt; never automatic')
     args = parser.parse_args()
     with state_lock(args.state):
         run(args)
@@ -36,6 +37,11 @@ def run(args):
             raise RehearsalFailure('prepare_state_first')
         state = new_state(args.provider, repo=args.repo, number=args.issue, to=args.to, subject=args.subject_prefix)
         save(args.state, state)  # Persist idempotency identity BEFORE any network mutation.
+    if args.repair_attempt is not None:
+        if args.step != 'positive' or state['stage'] != 'NEGATIVE' or not 1 <= args.repair_attempt <= 100:
+            raise RehearsalFailure('invalid_repair_attempt')
+        state['repair_attempt'] = args.repair_attempt
+        save(args.state, state)
     runner = Rehearsal(args.base_url, os.environ['DONEPROOF_API_KEY'], json.loads(args.pins.read_text()),
                        allow_loopback=args.allow_loopback)
     try:

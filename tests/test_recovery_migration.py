@@ -60,7 +60,7 @@ def test_additive_migration_preserves_production_bytes_and_enrolls_legacy_receip
     with db.transaction() as con:
         exact = db.execute(con, "SELECT body_json FROM receipts WHERE receipt_id=?", (receipt.receipt_id,)).fetchone()["body_json"]
         if db.pg:
-            con.execute("DELETE FROM schema_migrations WHERE version=4")
+            con.execute("DELETE FROM schema_migrations WHERE version>=4")
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(lambda _: Store(connection_settings.storage_dsn), range(4)))
     upgraded = Store(connection_settings.storage_dsn)

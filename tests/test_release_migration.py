@@ -86,3 +86,28 @@ def test_future_postgres_schema_refuses_startup_before_writes(connection_setting
     with pytest.raises(RuntimeError, match="Unsupported database schema"):
         Store(connection_settings.storage_dsn)
     assert current.schema_version() is None
+
+
+def test_current_postgres_restart_does_not_replay_exclusive_ddl(connection_settings, monkeypatch):
+    current = Store(connection_settings.storage_dsn)
+    if not connection_settings.database_url:
+        assert current.schema_version() == 7
+        return
+    def forbidden(*args, **kwargs):
+        pytest.fail('Current schema startup must not replay migration DDL')
+    for name in MIGRATIONS:
+        monkeypatch.setattr(store_module, name, forbidden)
+    # An active worker may hold table/row locks while a replacement starts.
+    with current._pg_connect() as active:
+        active.execute('LOCK TABLE verification_jobs IN ROW EXCLUSIVE MODE')
+        assert Store(connection_settings.storage_dsn).schema_version() == 7
+
+
+def test_missing_postgres_migration_ledger_entry_fails_closed(connection_settings):
+    current = Store(connection_settings.storage_dsn)
+    if not connection_settings.database_url:
+        return
+    with current._pg_connect() as con:
+        con.execute('DELETE FROM schema_migrations WHERE version=4')
+    with pytest.raises(RuntimeError, match='Incomplete database migration history'):
+        Store(connection_settings.storage_dsn)
