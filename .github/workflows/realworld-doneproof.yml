@@ -32,7 +32,7 @@ jobs:
           from doneproof.app import app
           from doneproof.client import DoneProofClient
 
-          issue_url = "https://api.github.com/repos/Odhiambo526/demo-repo/issues/2"
+          issue_url = "https://api.github.com/repos/Odhiambo526/DoneProof/issues/13"
           req = urllib.request.Request(issue_url, headers={"Accept":"application/vnd.github+json","User-Agent":"doneproof-realworld-test"})
           with urllib.request.urlopen(req, timeout=20) as r:
               external = json.load(r)
@@ -40,19 +40,19 @@ jobs:
 
           contract = {
               "contract": {
-                  "task": "Close demo-repo issue #2",
+                  "task": "Close DoneProof issue #13",
                   "postconditions": [{
                       "id": "issue-closed",
                       "description": "The controlled GitHub issue is closed",
                       "provider": "github",
-                      "selector": {"repo": "Odhiambo526/demo-repo", "kind": "issue", "number": 2},
+                      "selector": {"repo": "Odhiambo526/DoneProof", "kind": "issue", "number": 13},
                       "predicate": {"op": "eq", "path": "state", "expected": "closed"},
                       "required": True
                   }]
               }
           }
 
-          headers = {"X-DoneProof-Key": "dp_test_realworld", "Idempotency-Key": "rw-issue-2-" + actual}
+          headers = {"X-DoneProof-Key": "dp_test_realworld", "Idempotency-Key": "rw-issue-13-" + actual}
           with TestClient(app) as client:
               pinned_key = client.get("/v1/signing-key").json()["public_key"]
               response = client.post("/v1/verify", json=contract, headers=headers)
