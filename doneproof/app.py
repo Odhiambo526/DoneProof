@@ -12,16 +12,19 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from . import __version__
 from .adapters.base import ProviderAdapter
-from .adapters.github import GitHubAdapter
-from .adapters.gmail import GmailAdapter
-from .adapters.webhook import WebhookEvidenceAdapter
-from .compiler import AstraCompiler
+from .assurance_api import register_assurance_routes
+from .browser_api import register_browser_routes
+from .compilation import ContractCompiler
+from .compilation_models import CompilationResult
 from .config import Settings, get_settings
+from .connection_api import register_connection_routes
+from .connections import ConnectionService
 from .demo import DEMO_HTML
 from .domain import (
     CapabilityResponse,
@@ -35,8 +38,18 @@ from .domain import (
     WebhookEventReceipt,
 )
 from .engine import VerificationEngine
+from .job_api import register_job_routes
+from .job_callbacks import CallbackRegistry
+from .job_store import JobStore
 from .limits import SlidingWindowLimiter
+from .operations import readiness
+from .provider_registry import default_registry
+from .recovery_api import register_recovery_routes
+from .recovery_store import RecoveryStore
+from .recovery_web import RECOVERY_SCRIPT
+from .request_limits import RequestBodyLimit
 from .security import TenantContext, require_tenant
+from .selector_resolution import SelectorResolver
 from .signing import ReceiptSigner
 from .store import Store
 from .web import CONSOLE_HTML, LANDING_HTML, certificate_html
@@ -47,7 +60,7 @@ logger = logging.getLogger("doneproof.startup")
 
 
 def create_app(
-    settings: Settings | None = None, adapter_overrides: dict[str, ProviderAdapter] | None = None
+    settings: Settings | None = None, adapter_overrides: dict[str, ProviderAdapter] | None = None, *, provider_registry=None
 ) -> FastAPI:
     settings = settings or get_settings()
     if settings.verification_timeout_seconds <= 0:
@@ -69,18 +82,39 @@ def create_app(
         contact={"name": "DoneProof"},
     )
     app.state.settings = settings
-    app.state.store = Store(settings.storage_dsn)
+    app.add_middleware(RequestBodyLimit, max_bytes=settings.max_body_bytes)
+    registry = provider_registry or default_registry(plugins=True)
+    app.state.providers = registry
+    app.state.store = Store(settings.storage_dsn, registry=registry)
     app.state.signer = ReceiptSigner(settings)
-    app.state.compiler = AstraCompiler(settings)
     app.state.limiter = SlidingWindowLimiter(settings.requests_per_minute)
-    adapters = {
-        "github": GitHubAdapter(token=settings.github_token),
-        "gmail": GmailAdapter(settings),
-        "webhook": WebhookEvidenceAdapter(app.state.store),
-    }
+    app.state.connections = ConnectionService(app.state.store, settings)
+    adapters = registry.adapters(settings, app.state.store, app.state.connections)
     if adapter_overrides:
+        if any(name != "unresolved" and registry.get(name) is None for name in adapter_overrides):
+            raise ValueError("Adapter overrides require a registered provider")
         adapters.update(adapter_overrides)
-    app.state.engine = VerificationEngine(adapters, app.state.signer, settings.verification_timeout_seconds)
+    app.state.jobs = JobStore(app.state.store)
+    app.state.engine = VerificationEngine(adapters, app.state.signer, settings.verification_timeout_seconds, registry=registry,
+        provider_binding_check=app.state.jobs.binding_current)
+    app.state.compiler = ContractCompiler(settings, SelectorResolver(adapters, app.state.connections, settings))
+    app.state.job_callbacks = CallbackRegistry(settings.job_callbacks)
+    app.state.recovery = RecoveryStore(app.state.store, settings.max_reverification_attempts)
+    register_job_routes(app)
+    register_recovery_routes(app)
+    register_browser_routes(app)
+    register_assurance_routes(app)
+
+    @app.exception_handler(RequestValidationError)
+    async def safe_compilation_validation(request, exc):
+        if request.url.path.startswith("/v2/"):
+            # Pydantic errors otherwise echo input values, which may contain credentials.
+            return JSONResponse(status_code=422, content={"detail": "Invalid compilation request."},
+                                headers={"Cache-Control": "no-store"})
+        # Legacy routes retain 422 without reflecting arbitrary invalid customer
+        # values or credentials through Pydantic's input/context fields.
+        return JSONResponse(status_code=422, content={"detail": "Invalid request."},
+                            headers={"Cache-Control": "no-store"})
 
     if settings.cors_origins:
         app.add_middleware(
@@ -109,8 +143,10 @@ def create_app(
             else f"req_{uuid.uuid4().hex[:16]}"
         )
         started = time.perf_counter()
+        trace_id = "trace_" + uuid.uuid4().hex
+        request.state.trace_id = trace_id
         if (
-            request.url.path.startswith("/v1/")
+            request.url.path.startswith(("/v1/", "/v2/"))
             and not request.url.path.startswith("/v1/webhooks/")
             and request.url.path != "/v1/signing-key"
         ):
@@ -119,7 +155,7 @@ def create_app(
                 tenant_id = next(
                     (
                         tenant
-                        for candidate, tenant in settings.api_keys.items()
+                        for candidate, tenant in {**settings.api_keys, **settings.connection_admin_keys}.items()
                         if hmac.compare_digest(candidate, supplied)
                     ),
                     None,
@@ -146,15 +182,25 @@ def create_app(
             except ValueError:
                 pass
         response = await call_next(request)
+        logger.info(json.dumps({"event": "api_request", "trace_id": trace_id,
+            "route": getattr(request.scope.get("route"), "path", "unmatched"),
+            "method": request.method if request.method in {"GET", "POST", "DELETE", "OPTIONS"} else "other",
+            "status": response.status_code, "duration_ms": round((time.perf_counter() - started) * 1000, 2)}))
+        response.headers["X-DoneProof-Trace-ID"] = trace_id
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        response.headers["Cache-Control"] = "no-store" if request.url.path.startswith("/v1") else "public, max-age=300"
+        response.headers["Cache-Control"] = "no-store" if request.url.path.startswith(("/v1", "/v2", "/connections", "/ready", "/health")) else "public, max-age=300"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
         )
+        if request.url.path.startswith("/connections"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+                "img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+            )
         response.headers["X-DoneProof-Duration-Ms"] = f"{(time.perf_counter() - started) * 1000:.2f}"
         if settings.is_production:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -163,6 +209,10 @@ def create_app(
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     def landing():
         return LANDING_HTML
+
+    @app.get("/console/recovery.js", include_in_schema=False)
+    def recovery_script():
+        return Response(RECOVERY_SCRIPT, media_type="application/javascript")
 
     @app.get("/console", response_class=HTMLResponse, include_in_schema=False)
     def console():
@@ -178,41 +228,16 @@ def create_app(
 
     @app.get("/ready", tags=["Operations"])
     def ready(request: Request):
-        db_ok = request.app.state.store.ping()
-        body = {
-            "ready": db_ok,
-            "database": "ready" if db_ok else "unavailable",
-            "storage_backend": request.app.state.store.backend,
-            "durable_storage": settings.durable_storage,
-            "environment": settings.env,
-            "warnings": [],
-        }
+        body = readiness(request.app)
         if not body["ready"]:
             return JSONResponse(status_code=503, content=body)
         return body
 
     @app.get("/v1/capabilities", response_model=CapabilityResponse, tags=["Workspace"])
     async def capabilities(ctx: TenantContext = Depends(require_tenant)):
-        gmail_available = bool(settings.gmail_token_for(ctx.tenant_id))
-        providers = [
-            ProviderCapability(
-                provider="github",
-                status="available",
-                description="Issues and pull requests with time-bounded resource discovery.",
-            ),
-            ProviderCapability(
-                provider="gmail",
-                status="available" if gmail_available else "configuration_required",
-                description="Sent-vs-draft, recipients, subject, thread and attachment metadata.",
-            ),
-            ProviderCapability(
-                provider="webhook",
-                status="available"
-                if any(x.tenant_id == ctx.tenant_id for x in settings.webhook_sources.values())
-                else "configuration_required",
-                description="Signed evidence events from customer systems and proprietary workflows.",
-            ),
-        ]
+        providers = [ProviderCapability(provider=d.manifest.provider_id,
+            status=registry.capability(ctx.tenant_id, d.manifest.provider_id, app.state.connections, settings),
+            description=d.manifest.description) for d in registry]
         return CapabilityResponse(
             version=VERSION,
             environment=settings.env,
@@ -220,6 +245,14 @@ def create_app(
             signing_key_id=app.state.signer.key_id,
             providers=providers,
         )
+
+    @app.get("/v1/providers", tags=["Workspace"])
+    def provider_documentation(ctx: TenantContext = Depends(require_tenant)):
+        return {"sdk_version": 1, "providers": registry.documents()}
+
+    def require_installed_providers(contract):
+        if not registry.accepts(contract):
+            raise HTTPException(422, "Contract contains a provider not installed in this deployment")
 
     @app.get("/v1/signing-key", tags=["Receipts"])
     async def signing_key():
@@ -233,30 +266,55 @@ def create_app(
     @app.post("/v1/contracts/compile", response_model=CompletionContract, tags=["Contracts"])
     async def compile_contract(req: CompileRequest, ctx: TenantContext = Depends(require_tenant)):
         try:
-            contract = await app.state.compiler.compile(req.task, req.context, req.task_started_at)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+            result = await app.state.compiler.compile(req.task, req.context, ctx.tenant_id, req.task_started_at)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Contract compiler could not produce a valid completion contract.",
             ) from exc
+        if result.contract is None:
+            unavailable = not settings.openai_api_key or any(
+                p.code in {"model_unavailable", "compilation_deadline"} for p in result.clarification_requirements)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE if unavailable else status.HTTP_502_BAD_GATEWAY,
+                detail="Contract compilation requires clarification. Use /v2/contracts/compile for structured requirements.")
+        contract = result.contract
         app.state.store.save_contract(ctx.tenant_id, contract)
         app.state.store.audit(
             ctx.tenant_id, "contract.compiled", "contract", contract.id, {"conditions": len(contract.postconditions)}
         )
         return contract
 
+    @app.post("/v2/contracts/compile", response_model=CompilationResult, tags=["Contracts"])
+    async def compile_contract_v2(req: CompileRequest, ctx: TenantContext = Depends(require_tenant)):
+        try:
+            result = await app.state.compiler.compile(req.task, req.context, ctx.tenant_id, req.task_started_at)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="Contract compilation is temporarily unavailable.") from exc
+        if result.contract is not None:
+            app.state.store.save_contract(ctx.tenant_id, result.contract)
+            app.state.store.audit(ctx.tenant_id, "contract.compiled", "contract", result.contract.id,
+                {"conditions": len(result.contract.postconditions), "compiler_version": "2.0",
+                 "deterministic": result.deterministic})
+        return result
+
+    @app.get("/v2/contracts/capabilities", tags=["Contracts"])
+    async def compilation_capabilities(ctx: TenantContext = Depends(require_tenant)):
+        return {"schema_version": "2.0", "deterministic": True,
+                "model": "available" if settings.openai_api_key else "configuration_required",
+                "providers": await app.state.compiler.resolver.capabilities(ctx.tenant_id)}
+
     @app.post("/v1/runs", response_model=CompletionContract, tags=["Runs"])
     async def register_run(req: RegisterRunRequest, ctx: TenantContext = Depends(require_tenant)):
         # High-assurance flow: the verifier, not the executor, establishes the
         # temporal boundary before the external action occurs.
         now = datetime.now(timezone.utc)
+        require_installed_providers(req.contract)
         contract = req.contract.model_copy(deep=True)
         contract.id = f"cc_{uuid.uuid4().hex[:16]}"
         contract.task_started_at = now
         contract.created_at = now
         app.state.store.save_contract(ctx.tenant_id, contract)
+        app.state.jobs.bind_contract(ctx.tenant_id, contract)
         baselines = await app.state.engine.snapshot(contract, ctx.tenant_id)
         for baseline in baselines:
             app.state.store.save_baseline(ctx.tenant_id, contract.id, baseline)
@@ -321,6 +379,7 @@ def create_app(
         ctx: TenantContext = Depends(require_tenant),
         idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     ):
+        require_installed_providers(req.contract)
         raw_body = await request.body()
         try:
             canonical_request = json.dumps(json.loads(raw_body), sort_keys=True, separators=(",", ":")).encode()
@@ -358,6 +417,8 @@ def create_app(
 
     @app.post("/v1/verify/batch", response_model=list[VerificationReceipt], tags=["Verification"])
     async def verify_batch(requests: list[VerifyRequest], ctx: TenantContext = Depends(require_tenant)):
+        for item in requests:
+            require_installed_providers(item.contract)
         if not requests:
             raise HTTPException(status_code=400, detail="Batch must contain at least one verification request")
         if len(requests) > settings.max_batch_size:
@@ -500,6 +561,15 @@ def create_app(
             event_id=event_id, accepted=True, duplicate=not inserted, source=source, occurred_at=occurred_at
         )
 
+    register_connection_routes(app)
+    original_openapi = app.openapi
+    def provider_openapi():
+        from .assurance_models import PrepareSession
+        schema = original_openapi()
+        schema['components']['schemas'].update(PrepareSession.model_json_schema(
+            ref_template='#/components/schemas/{model}').get('$defs', {}))
+        return registry.describe_contracts(schema)
+    app.openapi = provider_openapi
     return app
 
 

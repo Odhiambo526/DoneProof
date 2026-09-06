@@ -16,15 +16,18 @@ from .base import ObservationContext, ProviderAdapter, ProviderObservation
 class GmailAdapter(ProviderAdapter):
     API = "https://gmail.googleapis.com/gmail/v1/users/me"
 
-    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None, *, response_hooks=None):
         self.settings = settings
         self.transport = transport
+        self.response_hooks = response_hooks or []
 
     def _client(self, token: str) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             timeout=15.0,
             follow_redirects=False,
+            trust_env=False,
             transport=self.transport,
+            event_hooks={"response": self.response_hooks},
             headers={
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/json",
@@ -89,14 +92,19 @@ class GmailAdapter(ProviderAdapter):
                 )
             r.raise_for_status()
             refs = r.json().get("messages", []) or []
+            if r.json().get("nextPageToken") or len(refs) > 100:
+                return ProviderObservation(None, source_url=url, indeterminate=True,
+                    note="Gmail discovery exceeded its search budget; absence and uniqueness cannot be established.")
             candidates: list[dict[str, Any]] = []
             for ref in refs[:100]:
                 mid = ref.get("id")
                 if not mid:
-                    continue
+                    return ProviderObservation(None, source_url=url, indeterminate=True,
+                        note="Gmail discovery returned incomplete resource identifiers.")
                 detail = await resilient_get(client, f"{self.API}/messages/{mid}", params={"format": "full"})
                 if detail.status_code != 200:
-                    continue
+                    return ProviderObservation(None, source_url=url, indeterminate=True,
+                        note="Gmail discovery could not read every candidate; absence and uniqueness are unknown.")
                 normalized = self._normalize(detail.json())
                 if datetime.fromisoformat(normalized["internal_date"].replace("Z", "+00:00")) < created_after:
                     continue
@@ -195,3 +203,18 @@ class GmailAdapter(ProviderAdapter):
             "to": data.get("to"),
             "internal_date": data.get("internal_date"),
         }
+
+
+def provider_definition():
+    from .builtin_provider import definition, gmail_settings
+    return definition({
+        "provider_id": "gmail", "display_name": "Gmail", "resource_types": ("message",),
+        "description": "Sent-vs-draft, recipients, subject, thread and attachment metadata.",
+        "discovery": {"supported": True, "identity_field": "message_id", "identity_schema": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,200}$"},
+                      "boundary_field": "created_after"},
+        "authentication": {"mode": "managed_oauth", "requirements": ("https://www.googleapis.com/auth/gmail.readonly",),
+                           "refresh_required": True, "authorization_origin": "https://accounts.google.com", "onboarding_order": 0},
+        "rate_limit": {"concurrency": 4, "preflight_concurrency": 2, "attempts": 4, "base_seconds": 1.0, "cap_seconds": 32.0},
+        "evidence_sensitivity": "restricted",
+        "compiler_instructions": "Gmail discovery requires BOTH exact subject and recipient; never filter by location. Send requires location=sent, subject equality and recipient containment. No message body, read receipts or business satisfaction evidence.",
+    }, lambda runtime: GmailAdapter(gmail_settings(runtime), transport=runtime.transport, response_hooks=list(runtime.response_hooks)))

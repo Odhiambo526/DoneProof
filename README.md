@@ -1,6 +1,20 @@
 # DoneProof
 
+Agent integrations: [Assurance Session Protocol and Python/TypeScript SDKs](docs/assurance-sessions.md)
+provide preparation, durable verification, signed callbacks and immutable repair
+chains. Run `python examples/assured_agent.py` for the explicit offline fixture
+demo. See [framework recipes](docs/agent-integration-recipes.md) for existing agent runtimes.
+
+Completion Contract Compiler v2 adds deterministic parsing, tenant-bound selector preflight,
+static analysis and structured clarification results. See [compiler API and evaluation](docs/compiler-v2.md).
+
+The [Provider Adapter SDK](docs/provider-sdk.md) supplies one registry for compilation, verification, connections and capabilities. See the [generated provider reference](docs/providers.md) for the shipped adapter declarations.
+
 **Independent outcome assurance for AI agents.**
+
+Managed Gmail/GitHub onboarding is available through **Assurance console → Connection Settings**. See [managed connection setup, APIs and migration](docs/managed-connections.md) for operator configuration and security boundaries.
+
+Durable verification is available through `/v1/jobs`, with a separate PostgreSQL-backed worker. The synchronous API remains available. See [job APIs, retry/recovery semantics and deployment](docs/durable-verification.md).
 
 AI agents can say a task is complete. DoneProof checks the external system and determines whether the requested outcome is actually true.
 
@@ -161,3 +175,9 @@ pytest -q
 python -m compileall doneproof
 python benchmarks/benchmark_core.py
 ```
+
+See [failure explanations and re-verification](docs/recovery.md) for receipt schema 1.1, recovery APIs, immutable chains and event-triggered checks.
+
+### Browser evidence for UI-only workflows
+
+The optional browser worker independently checks tenant-approved UI postconditions in fresh sandboxed Chromium. Browser evidence is lower assurance than an authoritative API; login, challenge, ambiguous UI and API-covered workflows fail closed. See [configuration, receipt provenance, screenshot retention and deployment](docs/browser-provider.md).

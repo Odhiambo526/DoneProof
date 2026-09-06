@@ -38,6 +38,7 @@ class ReceiptSigner:
         return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
     def sign(self, receipt: VerificationReceipt) -> VerificationReceipt:
+        receipt.validate_recovery_version()
         receipt.signature_alg = "Ed25519"
         receipt.key_id = self.key_id
         receipt.public_key = self.public_key_b64
@@ -49,6 +50,7 @@ class ReceiptSigner:
     @classmethod
     def verify(cls, receipt: VerificationReceipt) -> bool:
         try:
+            receipt.validate_recovery_version()
             public_bytes = base64.b64decode(receipt.public_key, validate=True)
             if hashlib.sha256(public_bytes).hexdigest()[:16] != receipt.key_id:
                 return False

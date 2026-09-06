@@ -1,0 +1,75 @@
+name: realworld-doneproof
+
+on:
+  push:
+    branches: [realworld-test-20260906]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-real-github-state:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install release candidate
+        run: python -m pip install -e '.[dev]'
+      - name: Verify real GitHub issue independently
+        env:
+          DONEPROOF_ENV: development
+          DONEPROOF_DB: /tmp/doneproof-realworld.db
+          DONEPROOF_API_KEYS_JSON: '{"dp_test_realworld":"realworld"}'
+          DONEPROOF_SIGNING_SEED_B64: 'UlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlI='
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+          from fastapi.testclient import TestClient
+          from doneproof.app import app
+          from doneproof.client import DoneProofClient
+
+          issue_url = "https://api.github.com/repos/Odhiambo526/DoneProof/issues/13"
+          req = urllib.request.Request(issue_url, headers={"Accept":"application/vnd.github+json","User-Agent":"doneproof-realworld-test"})
+          with urllib.request.urlopen(req, timeout=20) as r:
+              external = json.load(r)
+          actual = external["state"]
+
+          contract = {
+              "contract": {
+                  "task": "Close DoneProof issue #13",
+                  "postconditions": [{
+                      "id": "issue-closed",
+                      "description": "The controlled GitHub issue is closed",
+                      "provider": "github",
+                      "selector": {"repo": "Odhiambo526/DoneProof", "kind": "issue", "number": 13},
+                      "predicate": {"op": "eq", "path": "state", "expected": "closed"},
+                      "required": True
+                  }]
+              }
+          }
+
+          headers = {"X-DoneProof-Key": "dp_test_realworld", "Idempotency-Key": "rw-issue-13-" + actual}
+          with TestClient(app) as client:
+              pinned_key = client.get("/v1/signing-key").json()["public_key"]
+              response = client.post("/v1/verify", json=contract, headers=headers)
+              response.raise_for_status()
+              receipt = response.json()
+              expected_verdict = "VERIFIED" if actual == "closed" else "FAILED"
+              assert receipt["verdict"] == expected_verdict, (actual, receipt)
+              assert DoneProofClient.verify_receipt(receipt, pinned_key), "pinned Ed25519 verification failed"
+              result = receipt["results"][0]
+              assert result["evidence"]["provider"] == "github"
+              print(json.dumps({
+                  "external_github_state": actual,
+                  "doneproof_verdict": receipt["verdict"],
+                  "condition_status": result["status"],
+                  "receipt_id": receipt["receipt_id"],
+                  "assurance_level": receipt["assurance_level"],
+                  "source_url": result["evidence"]["source_url"],
+                  "pinned_signature_valid": True
+              }, sort_keys=True))
+          PY

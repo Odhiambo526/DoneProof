@@ -1,0 +1,78 @@
+{
+  "mode": "baseline",
+  "baseline_commit": "c33ad5f5918d36300d3581e700dffcb39c940ba9",
+  "captured_at": "2026-09-05T07:52:45.522133+00:00",
+  "python": "3.12.14",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "repeats": 10,
+  "results": [
+    {
+      "conditions": 1,
+      "provider_delay_ms": 0,
+      "p50_ms": 0.189,
+      "p95_ms": 0.263,
+      "mean_ms": 0.199,
+      "peak_provider_concurrency": 1
+    },
+    {
+      "conditions": 10,
+      "provider_delay_ms": 0,
+      "p50_ms": 0.578,
+      "p95_ms": 0.624,
+      "mean_ms": 0.586,
+      "peak_provider_concurrency": 10
+    },
+    {
+      "conditions": 100,
+      "provider_delay_ms": 0,
+      "p50_ms": 4.323,
+      "p95_ms": 14.378,
+      "mean_ms": 5.348,
+      "peak_provider_concurrency": 100
+    },
+    {
+      "conditions": 1000,
+      "provider_delay_ms": 0,
+      "p50_ms": 44.396,
+      "p95_ms": 57.88,
+      "mean_ms": 47.912,
+      "peak_provider_concurrency": 1000
+    },
+    {
+      "conditions": 1,
+      "provider_delay_ms": 5,
+      "p50_ms": 5.328,
+      "p95_ms": 6.483,
+      "mean_ms": 5.45,
+      "peak_provider_concurrency": 1
+    },
+    {
+      "conditions": 10,
+      "provider_delay_ms": 5,
+      "p50_ms": 5.827,
+      "p95_ms": 5.864,
+      "mean_ms": 5.811,
+      "peak_provider_concurrency": 10
+    },
+    {
+      "conditions": 100,
+      "provider_delay_ms": 5,
+      "p50_ms": 9.842,
+      "p95_ms": 10,
+      "mean_ms": 9.763,
+      "peak_provider_concurrency": 100
+    },
+    {
+      "conditions": 1000,
+      "provider_delay_ms": 5,
+      "p50_ms": 48.344,
+      "p95_ms": 62.349,
+      "mean_ms": 51.859,
+      "peak_provider_concurrency": 1000
+    }
+  ],
+  "storage": null,
+  "note": "Synthetic engine-only timings, including evaluation and signing; no database. No real provider network. 100/1000-condition baseline workloads bypass the legacy API's 50-condition validation limit.",
+  "code_commit": "6b9584af87b50b4c4d0a00207429b2fc9433738a",
+  "run_url": "https://github.com/Odhiambo526/DoneProof/actions/runs/33953694605"
+}

@@ -1,0 +1,74 @@
+# A Linux host with user namespaces and the supplied seccomp profile is required.
+# No public database port; TLS terminates at an operator-managed reverse proxy.
+name: doneproof-rc
+x-runtime: &runtime
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs: ["/tmp:rw,nosuid,size=256m"]
+  stop_grace_period: 120s
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+services:
+  api:
+    <<: *runtime
+    image: ${DONEPROOF_BROWSER_IMAGE:?Use an immutable browser image digest}
+    command: ["uvicorn", "doneproof.app:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--log-config", "/app/rc-logging.json"]
+    volumes: ["./logging.json:/app/rc-logging.json:ro"]
+    env_file: ${RC_API_ENV_FILE:?Private staging API environment file}
+    ports: ["127.0.0.1:8000:8000"]
+    security_opt: ["seccomp=./browser-seccomp.json"]
+    shm_size: 256m
+    mem_limit: 2g
+    pids_limit: 256
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready',timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  worker:
+    <<: *runtime
+    image: ${DONEPROOF_API_IMAGE:?Use an immutable API image digest}
+    command: ["python", "-m", "doneproof.worker"]
+    env_file: ${RC_WORKER_ENV_FILE:?Private staging worker environment file}
+    environment:
+      DONEPROOF_WORKER_EXCLUDE_PROVIDERS: browser
+      DONEPROOF_WORKER_HEALTH_FILE: /tmp/doneproof-worker-health.json
+    mem_limit: 768m
+    pids_limit: 128
+    cpus: 1
+    healthcheck: &worker-health
+      test: ["CMD", "python", "-m", "doneproof.worker_health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+  browser-worker:
+    <<: *runtime
+    image: ${DONEPROOF_BROWSER_IMAGE:?Use an immutable browser image digest}
+    env_file: ${RC_BROWSER_ENV_FILE:?Private staging browser environment file}
+    environment:
+      DONEPROOF_WORKER_REQUIRE_PROVIDERS: browser
+      DONEPROOF_WORKER_HEALTH_FILE: /tmp/doneproof-worker-health.json
+    security_opt: ["seccomp=./browser-seccomp.json"]
+    shm_size: 256m
+    mem_limit: 2g
+    pids_limit: 256
+    cpus: 2
+    healthcheck: *worker-health
+  callback:
+    <<: *runtime
+    image: ${DONEPROOF_API_IMAGE:?Use an immutable API image digest}
+    command: ["uvicorn", "doneproof.callback_receiver:factory", "--factory", "--host", "0.0.0.0", "--port", "8001", "--no-access-log"]
+    env_file: ${RC_CALLBACK_ENV_FILE:?Private staging callback environment file}
+    ports: ["127.0.0.1:8001:8001"]
+    mem_limit: 256m
+    pids_limit: 64
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health',timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

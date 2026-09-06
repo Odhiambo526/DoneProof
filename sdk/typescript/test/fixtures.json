@@ -1,0 +1,335 @@
+{
+  "fixture": true,
+  "ready_session": {
+    "baselines": [],
+    "can_reverify": false,
+    "compiler": {
+      "clarification_requirements": [],
+      "contract": {
+        "assumptions": [],
+        "created_at": "2026-09-05T10:04:05.957431Z",
+        "id": "cc_682662f8b5fb4b99",
+        "postconditions": [
+          {
+            "description": "Expected authoritative state",
+            "id": "p0",
+            "predicate": {
+              "expected": true,
+              "op": "eq",
+              "path": "ok"
+            },
+            "provider": "github",
+            "require_change": false,
+            "required": true,
+            "selector": {
+              "number": 1
+            }
+          }
+        ],
+        "schema_version": "1.0",
+        "task": "Verify a durable outcome",
+        "task_started_at": "2026-09-05T10:04:05.957431Z"
+      },
+      "contract_quality": {
+        "confidence": 0.9,
+        "confidence_basis": "deterministic_checks",
+        "confidence_calibrated": false,
+        "confidence_scope": "contract_structure",
+        "evidence": false,
+        "requires_registration": true,
+        "warnings": []
+      },
+      "deterministic": true,
+      "latency_ms": 0.0,
+      "schema_version": "2.0",
+      "selector_checks": [],
+      "stages": [],
+      "status": "valid_contract",
+      "usage": {
+        "cache_write_tokens": 0,
+        "cached_input_tokens": 0,
+        "complete": true,
+        "efforts": [],
+        "escalation_reasons": [],
+        "input_tokens": 0,
+        "model": null,
+        "output_tokens": 0,
+        "reasoning_tokens": 0
+      }
+    },
+    "contract": {
+      "assumptions": [],
+      "created_at": "2026-09-05T10:04:05.957431Z",
+      "id": "cc_682662f8b5fb4b99",
+      "postconditions": [
+        {
+          "description": "Expected authoritative state",
+          "id": "p0",
+          "predicate": {
+            "expected": true,
+            "op": "eq",
+            "path": "ok"
+          },
+          "provider": "github",
+          "require_change": false,
+          "required": true,
+          "selector": {
+            "number": 1
+          }
+        }
+      ],
+      "schema_version": "1.0",
+      "task": "Verify a durable outcome",
+      "task_started_at": "2026-09-05T10:04:05.957431Z"
+    },
+    "created_at": "2026-09-05T10:04:05.957431Z",
+    "current_job_id": null,
+    "evidence": [],
+    "id": "as_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "jobs": [],
+    "lineage": [],
+    "protocol_version": "1.0",
+    "providers": [],
+    "receipt": null,
+    "remediation": [],
+    "signed_payload_b64": null,
+    "state": "READY_FOR_EXECUTION",
+    "task": "Verify a durable outcome",
+    "trusted_task_started_at": "2026-09-05T10:04:05.957431Z",
+    "updated_at": "2026-09-05T10:04:05.957431Z",
+    "verdict": null,
+    "workspace": "tenant-a"
+  },
+  "receipts": [
+    {
+      "pinned_public_key": "vOYkB7/fKkWLLxEP5pPtKPEuAnAgXbCmd9O196hea6A=",
+      "receipt": {
+        "assurance_level": "submitted",
+        "contract_hash": "1d10491cdf283e5f80d12dd870481c42d76db2c64c2297484ec80851c8fc91d1",
+        "contract_id": "cc_682662f8b5fb4b99",
+        "duration_ms": 0.96,
+        "key_id": "9fbf6d4aa875060c",
+        "public_key": "vOYkB7/fKkWLLxEP5pPtKPEuAnAgXbCmd9O196hea6A=",
+        "receipt_hash": "44f8b51863e7c74abb675f0e87eab9c92e1c82e92565d959d18c58fdbf7d09f1",
+        "receipt_id": "vr_0339fd7d324f40e3939d",
+        "results": [
+          {
+            "baseline_observed": null,
+            "baseline_status": null,
+            "description": "Expected authoritative state",
+            "evidence": {
+              "fetched_at": "2026-09-05T10:04:05.959507Z",
+              "note": null,
+              "observed": false,
+              "provider": "github",
+              "selector": {
+                "number": 1
+              },
+              "source_url": null
+            },
+            "id": "p0",
+            "latency_ms": 0.17,
+            "predicate": {
+              "expected": true,
+              "op": "eq",
+              "path": "ok"
+            },
+            "reason": "observed=False; expected eq True",
+            "required": true,
+            "status": "FAIL",
+            "transition_required": false
+          }
+        ],
+        "schema_version": "1.0",
+        "signature": "TZgU76Weiezb4s7YJ5mr6PE3w8tpioCWWtNA02Jps1lQyMi4kwQlkSLNkbJ5nXVVBXWqgcD0ouJxXRxSfaMjBw==",
+        "signature_alg": "Ed25519",
+        "summary": {
+          "failed": 1,
+          "passed": 0,
+          "providers": [
+            "github"
+          ],
+          "required": 1,
+          "total": 1,
+          "unknown": 0
+        },
+        "task": "Verify a durable outcome",
+        "verdict": "FAILED",
+        "verified_at": "2026-09-05T10:04:05.960508Z"
+      },
+      "signed_payload_b64": "eyJhc3N1cmFuY2VfbGV2ZWwiOiJzdWJtaXR0ZWQiLCJjb250cmFjdF9oYXNoIjoiMWQxMDQ5MWNkZjI4M2U1ZjgwZDEyZGQ4NzA0ODFjNDJkNzZkYjJjNjRjMjI5NzQ4NGVjODA4NTFjOGZjOTFkMSIsImNvbnRyYWN0X2lkIjoiY2NfNjgyNjYyZjhiNWZiNGI5OSIsImR1cmF0aW9uX21zIjowLjk2LCJrZXlfaWQiOiI5ZmJmNmQ0YWE4NzUwNjBjIiwicHVibGljX2tleSI6InZPWWtCNy9mS2tXTEx4RVA1cFB0S1BFdUFuQWdYYkNtZDlPMTk2aGVhNkE9IiwicmVjZWlwdF9pZCI6InZyXzAzMzlmZDdkMzI0ZjQwZTM5MzlkIiwicmVzdWx0cyI6W3siYmFzZWxpbmVfb2JzZXJ2ZWQiOm51bGwsImJhc2VsaW5lX3N0YXR1cyI6bnVsbCwiZGVzY3JpcHRpb24iOiJFeHBlY3RlZCBhdXRob3JpdGF0aXZlIHN0YXRlIiwiZXZpZGVuY2UiOnsiZmV0Y2hlZF9hdCI6IjIwMjYtMDktMDVUMTA6MDQ6MDUuOTU5NTA3WiIsIm5vdGUiOm51bGwsIm9ic2VydmVkIjpmYWxzZSwicHJvdmlkZXIiOiJnaXRodWIiLCJzZWxlY3RvciI6eyJudW1iZXIiOjF9LCJzb3VyY2VfdXJsIjpudWxsfSwiaWQiOiJwMCIsImxhdGVuY3lfbXMiOjAuMTcsInByZWRpY2F0ZSI6eyJleHBlY3RlZCI6dHJ1ZSwib3AiOiJlcSIsInBhdGgiOiJvayJ9LCJyZWFzb24iOiJvYnNlcnZlZD1GYWxzZTsgZXhwZWN0ZWQgZXEgVHJ1ZSIsInJlcXVpcmVkIjp0cnVlLCJzdGF0dXMiOiJGQUlMIiwidHJhbnNpdGlvbl9yZXF1aXJlZCI6ZmFsc2V9XSwic2NoZW1hX3ZlcnNpb24iOiIxLjAiLCJzaWduYXR1cmVfYWxnIjoiRWQyNTUxOSIsInN1bW1hcnkiOnsiZmFpbGVkIjoxLCJwYXNzZWQiOjAsInByb3ZpZGVycyI6WyJnaXRodWIiXSwicmVxdWlyZWQiOjEsInRvdGFsIjoxLCJ1bmtub3duIjowfSwidGFzayI6IlZlcmlmeSBhIGR1cmFibGUgb3V0Y29tZSIsInZlcmRpY3QiOiJGQUlMRUQiLCJ2ZXJpZmllZF9hdCI6IjIwMjYtMDktMDVUMTA6MDQ6MDUuOTYwNTA4WiJ9"
+    },
+    {
+      "pinned_public_key": "11l5O7wTooGagnx2rbb7qKSa7gB/SfLQmS2ZuCWtLEg=",
+      "receipt": {
+        "assurance_level": "submitted",
+        "contract_hash": "1d10491cdf283e5f80d12dd870481c42d76db2c64c2297484ec80851c8fc91d1",
+        "contract_id": "cc_682662f8b5fb4b99",
+        "duration_ms": 0.96,
+        "key_id": "b14705888f4a6839",
+        "previous_receipt_hash": null,
+        "previous_receipt_id": null,
+        "public_key": "11l5O7wTooGagnx2rbb7qKSa7gB/SfLQmS2ZuCWtLEg=",
+        "receipt_hash": "98f61006db5a8200be4e2feba47e5cf3d62124dcd6e90c983e76b95cd86c78e7",
+        "receipt_id": "vr_0339fd7d324f40e3939d",
+        "recovery": {
+          "attempt": 0,
+          "chain_id": "vr_0339fd7d324f40e3939d",
+          "oscillating_conditions": [],
+          "repeated_failures": []
+        },
+        "remediation": [
+          {
+            "action_hint": "Authoritative state does not satisfy this condition. An external actor may repair it.",
+            "code": "predicate_unsatisfied",
+            "condition": "p0",
+            "expected": true,
+            "kind": "doneproof.remediation",
+            "observed": false,
+            "retryable": true,
+            "reverify_after": "external_action",
+            "status": "FAIL"
+          }
+        ],
+        "results": [
+          {
+            "baseline_observed": null,
+            "baseline_status": null,
+            "description": "Expected authoritative state",
+            "evidence": {
+              "fetched_at": "2026-09-05T10:04:05.959507Z",
+              "note": null,
+              "observed": false,
+              "provider": "github",
+              "selector": {
+                "number": 1
+              },
+              "source_url": null
+            },
+            "id": "p0",
+            "latency_ms": 0.17,
+            "predicate": {
+              "expected": true,
+              "op": "eq",
+              "path": "ok"
+            },
+            "reason": "observed=False; expected eq True",
+            "required": true,
+            "status": "FAIL",
+            "transition_required": false
+          }
+        ],
+        "schema_version": "1.1",
+        "signature": "FdeWSoGP46OFmDvTZG65kj5A87rakMXi2Qhl9YVjd5pV/NTuLu4MrlYXW09Sr3niG7l9MvV4dmqMtOz4XtOzAQ==",
+        "signature_alg": "Ed25519",
+        "summary": {
+          "failed": 1,
+          "passed": 0,
+          "providers": [
+            "github"
+          ],
+          "required": 1,
+          "total": 1,
+          "unknown": 0
+        },
+        "task": "Verify a durable outcome",
+        "verdict": "FAILED",
+        "verified_at": "2026-09-05T10:04:05.960508Z"
+      },
+      "signed_payload_b64": "eyJhc3N1cmFuY2VfbGV2ZWwiOiJzdWJtaXR0ZWQiLCJjb250cmFjdF9oYXNoIjoiMWQxMDQ5MWNkZjI4M2U1ZjgwZDEyZGQ4NzA0ODFjNDJkNzZkYjJjNjRjMjI5NzQ4NGVjODA4NTFjOGZjOTFkMSIsImNvbnRyYWN0X2lkIjoiY2NfNjgyNjYyZjhiNWZiNGI5OSIsImR1cmF0aW9uX21zIjowLjk2LCJrZXlfaWQiOiJiMTQ3MDU4ODhmNGE2ODM5IiwicHJldmlvdXNfcmVjZWlwdF9oYXNoIjpudWxsLCJwcmV2aW91c19yZWNlaXB0X2lkIjpudWxsLCJwdWJsaWNfa2V5IjoiMTFsNU83d1Rvb0dhZ254MnJiYjdxS1NhN2dCL1NmTFFtUzJadUNXdExFZz0iLCJyZWNlaXB0X2lkIjoidnJfMDMzOWZkN2QzMjRmNDBlMzkzOWQiLCJyZWNvdmVyeSI6eyJhdHRlbXB0IjowLCJjaGFpbl9pZCI6InZyXzAzMzlmZDdkMzI0ZjQwZTM5MzlkIiwib3NjaWxsYXRpbmdfY29uZGl0aW9ucyI6W10sInJlcGVhdGVkX2ZhaWx1cmVzIjpbXX0sInJlbWVkaWF0aW9uIjpbeyJhY3Rpb25faGludCI6IkF1dGhvcml0YXRpdmUgc3RhdGUgZG9lcyBub3Qgc2F0aXNmeSB0aGlzIGNvbmRpdGlvbi4gQW4gZXh0ZXJuYWwgYWN0b3IgbWF5IHJlcGFpciBpdC4iLCJjb2RlIjoicHJlZGljYXRlX3Vuc2F0aXNmaWVkIiwiY29uZGl0aW9uIjoicDAiLCJleHBlY3RlZCI6dHJ1ZSwia2luZCI6ImRvbmVwcm9vZi5yZW1lZGlhdGlvbiIsIm9ic2VydmVkIjpmYWxzZSwicmV0cnlhYmxlIjp0cnVlLCJyZXZlcmlmeV9hZnRlciI6ImV4dGVybmFsX2FjdGlvbiIsInN0YXR1cyI6IkZBSUwifV0sInJlc3VsdHMiOlt7ImJhc2VsaW5lX29ic2VydmVkIjpudWxsLCJiYXNlbGluZV9zdGF0dXMiOm51bGwsImRlc2NyaXB0aW9uIjoiRXhwZWN0ZWQgYXV0aG9yaXRhdGl2ZSBzdGF0ZSIsImV2aWRlbmNlIjp7ImZldGNoZWRfYXQiOiIyMDI2LTA5LTA1VDEwOjA0OjA1Ljk1OTUwN1oiLCJub3RlIjpudWxsLCJvYnNlcnZlZCI6ZmFsc2UsInByb3ZpZGVyIjoiZ2l0aHViIiwic2VsZWN0b3IiOnsibnVtYmVyIjoxfSwic291cmNlX3VybCI6bnVsbH0sImlkIjoicDAiLCJsYXRlbmN5X21zIjowLjE3LCJwcmVkaWNhdGUiOnsiZXhwZWN0ZWQiOnRydWUsIm9wIjoiZXEiLCJwYXRoIjoib2sifSwicmVhc29uIjoib2JzZXJ2ZWQ9RmFsc2U7IGV4cGVjdGVkIGVxIFRydWUiLCJyZXF1aXJlZCI6dHJ1ZSwic3RhdHVzIjoiRkFJTCIsInRyYW5zaXRpb25fcmVxdWlyZWQiOmZhbHNlfV0sInNjaGVtYV92ZXJzaW9uIjoiMS4xIiwic2lnbmF0dXJlX2FsZyI6IkVkMjU1MTkiLCJzdW1tYXJ5Ijp7ImZhaWxlZCI6MSwicGFzc2VkIjowLCJwcm92aWRlcnMiOlsiZ2l0aHViIl0sInJlcXVpcmVkIjoxLCJ0b3RhbCI6MSwidW5rbm93biI6MH0sInRhc2siOiJWZXJpZnkgYSBkdXJhYmxlIG91dGNvbWUiLCJ2ZXJkaWN0IjoiRkFJTEVEIiwidmVyaWZpZWRfYXQiOiIyMDI2LTA5LTA1VDEwOjA0OjA1Ljk2MDUwOFoifQ=="
+    },
+    {
+      "pinned_public_key": "11l5O7wTooGagnx2rbb7qKSa7gB/SfLQmS2ZuCWtLEg=",
+      "receipt": {
+        "assurance_level": "submitted",
+        "contract_hash": "1d10491cdf283e5f80d12dd870481c42d76db2c64c2297484ec80851c8fc91d1",
+        "contract_id": "cc_682662f8b5fb4b99",
+        "duration_ms": 0.96,
+        "key_id": "b14705888f4a6839",
+        "previous_receipt_hash": null,
+        "previous_receipt_id": null,
+        "public_key": "11l5O7wTooGagnx2rbb7qKSa7gB/SfLQmS2ZuCWtLEg=",
+        "receipt_hash": "c8606fe58fdb997d766cf604e3c75e629b364b882ca01907de1ce24ee6863f5a",
+        "receipt_id": "vr_0339fd7d324f40e3939d",
+        "recovery": {
+          "attempt": 0,
+          "chain_id": "vr_0339fd7d324f40e3939d",
+          "oscillating_conditions": [],
+          "repeated_failures": []
+        },
+        "remediation": [
+          {
+            "action_hint": "Authoritative state does not satisfy this condition. An external actor may repair it.",
+            "code": "predicate_unsatisfied",
+            "condition": "p0",
+            "expected": true,
+            "kind": "doneproof.remediation",
+            "observed": false,
+            "retryable": true,
+            "reverify_after": "external_action",
+            "status": "FAIL"
+          }
+        ],
+        "results": [
+          {
+            "baseline_observed": null,
+            "baseline_status": null,
+            "description": "Expected authoritative state",
+            "evidence": {
+              "fetched_at": "2026-09-05T10:04:05.959507Z",
+              "note": null,
+              "observed": false,
+              "provenance": {
+                "assurance": "lower_than_authoritative_api",
+                "authenticated": false,
+                "check_revision": null,
+                "collector": "doneproof.chromium.v1",
+                "executor_supplied": false,
+                "fresh_context": true,
+                "kind": "browser_ui",
+                "outcome": "recognized",
+                "recognized_state": null,
+                "samples": 0,
+                "screenshot": null,
+                "session_id": null
+              },
+              "provider": "browser",
+              "selector": {
+                "number": 1
+              },
+              "source_url": null
+            },
+            "id": "p0",
+            "latency_ms": 0.17,
+            "predicate": {
+              "expected": true,
+              "op": "eq",
+              "path": "ok"
+            },
+            "reason": "observed=False; expected eq True",
+            "required": true,
+            "status": "FAIL",
+            "transition_required": false
+          }
+        ],
+        "schema_version": "1.2",
+        "signature": "25Pdipt41d/yp/TCN3ebGStP49dZP/X8BouqiMoAS/o9seTLKZ4iTaMjIcFaMN1/w0jmld07XPSOZUmh7N8hBA==",
+        "signature_alg": "Ed25519",
+        "summary": {
+          "failed": 1,
+          "passed": 0,
+          "providers": [
+            "github"
+          ],
+          "required": 1,
+          "total": 1,
+          "unknown": 0
+        },
+        "task": "Verify a durable outcome",
+        "verdict": "FAILED",
+        "verified_at": "2026-09-05T10:04:05.960508Z"
+      },
+      "signed_payload_b64": "eyJhc3N1cmFuY2VfbGV2ZWwiOiJzdWJtaXR0ZWQiLCJjb250cmFjdF9oYXNoIjoiMWQxMDQ5MWNkZjI4M2U1ZjgwZDEyZGQ4NzA0ODFjNDJkNzZkYjJjNjRjMjI5NzQ4NGVjODA4NTFjOGZjOTFkMSIsImNvbnRyYWN0X2lkIjoiY2NfNjgyNjYyZjhiNWZiNGI5OSIsImR1cmF0aW9uX21zIjowLjk2LCJrZXlfaWQiOiJiMTQ3MDU4ODhmNGE2ODM5IiwicHJldmlvdXNfcmVjZWlwdF9oYXNoIjpudWxsLCJwcmV2aW91c19yZWNlaXB0X2lkIjpudWxsLCJwdWJsaWNfa2V5IjoiMTFsNU83d1Rvb0dhZ254MnJiYjdxS1NhN2dCL1NmTFFtUzJadUNXdExFZz0iLCJyZWNlaXB0X2lkIjoidnJfMDMzOWZkN2QzMjRmNDBlMzkzOWQiLCJyZWNvdmVyeSI6eyJhdHRlbXB0IjowLCJjaGFpbl9pZCI6InZyXzAzMzlmZDdkMzI0ZjQwZTM5MzlkIiwib3NjaWxsYXRpbmdfY29uZGl0aW9ucyI6W10sInJlcGVhdGVkX2ZhaWx1cmVzIjpbXX0sInJlbWVkaWF0aW9uIjpbeyJhY3Rpb25faGludCI6IkF1dGhvcml0YXRpdmUgc3RhdGUgZG9lcyBub3Qgc2F0aXNmeSB0aGlzIGNvbmRpdGlvbi4gQW4gZXh0ZXJuYWwgYWN0b3IgbWF5IHJlcGFpciBpdC4iLCJjb2RlIjoicHJlZGljYXRlX3Vuc2F0aXNmaWVkIiwiY29uZGl0aW9uIjoicDAiLCJleHBlY3RlZCI6dHJ1ZSwia2luZCI6ImRvbmVwcm9vZi5yZW1lZGlhdGlvbiIsIm9ic2VydmVkIjpmYWxzZSwicmV0cnlhYmxlIjp0cnVlLCJyZXZlcmlmeV9hZnRlciI6ImV4dGVybmFsX2FjdGlvbiIsInN0YXR1cyI6IkZBSUwifV0sInJlc3VsdHMiOlt7ImJhc2VsaW5lX29ic2VydmVkIjpudWxsLCJiYXNlbGluZV9zdGF0dXMiOm51bGwsImRlc2NyaXB0aW9uIjoiRXhwZWN0ZWQgYXV0aG9yaXRhdGl2ZSBzdGF0ZSIsImV2aWRlbmNlIjp7ImZldGNoZWRfYXQiOiIyMDI2LTA5LTA1VDEwOjA0OjA1Ljk1OTUwN1oiLCJub3RlIjpudWxsLCJvYnNlcnZlZCI6ZmFsc2UsInByb3ZlbmFuY2UiOnsiYXNzdXJhbmNlIjoibG93ZXJfdGhhbl9hdXRob3JpdGF0aXZlX2FwaSIsImF1dGhlbnRpY2F0ZWQiOmZhbHNlLCJjaGVja19yZXZpc2lvbiI6bnVsbCwiY29sbGVjdG9yIjoiZG9uZXByb29mLmNocm9taXVtLnYxIiwiZXhlY3V0b3Jfc3VwcGxpZWQiOmZhbHNlLCJmcmVzaF9jb250ZXh0Ijp0cnVlLCJraW5kIjoiYnJvd3Nlcl91aSIsIm91dGNvbWUiOiJyZWNvZ25pemVkIiwicmVjb2duaXplZF9zdGF0ZSI6bnVsbCwic2FtcGxlcyI6MCwic2NyZWVuc2hvdCI6bnVsbCwic2Vzc2lvbl9pZCI6bnVsbH0sInByb3ZpZGVyIjoiYnJvd3NlciIsInNlbGVjdG9yIjp7Im51bWJlciI6MX0sInNvdXJjZV91cmwiOm51bGx9LCJpZCI6InAwIiwibGF0ZW5jeV9tcyI6MC4xNywicHJlZGljYXRlIjp7ImV4cGVjdGVkIjp0cnVlLCJvcCI6ImVxIiwicGF0aCI6Im9rIn0sInJlYXNvbiI6Im9ic2VydmVkPUZhbHNlOyBleHBlY3RlZCBlcSBUcnVlIiwicmVxdWlyZWQiOnRydWUsInN0YXR1cyI6IkZBSUwiLCJ0cmFuc2l0aW9uX3JlcXVpcmVkIjpmYWxzZX1dLCJzY2hlbWFfdmVyc2lvbiI6IjEuMiIsInNpZ25hdHVyZV9hbGciOiJFZDI1NTE5Iiwic3VtbWFyeSI6eyJmYWlsZWQiOjEsInBhc3NlZCI6MCwicHJvdmlkZXJzIjpbImdpdGh1YiJdLCJyZXF1aXJlZCI6MSwidG90YWwiOjEsInVua25vd24iOjB9LCJ0YXNrIjoiVmVyaWZ5IGEgZHVyYWJsZSBvdXRjb21lIiwidmVyZGljdCI6IkZBSUxFRCIsInZlcmlmaWVkX2F0IjoiMjAyNi0wOS0wNVQxMDowNDowNS45NjA1MDhaIn0="
+    }
+  ]
+}

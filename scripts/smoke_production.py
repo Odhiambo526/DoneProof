@@ -41,14 +41,16 @@ def main() -> int:
 
     status, ready = fetch_json(base, "/ready")
     assert status == 200, f"/ready HTTP {status}: {ready}"
-    assert ready == {
+    assert {k: ready.get(k) for k in (
+        "ready", "database", "storage_backend", "durable_storage", "environment")} == {
         "ready": True,
         "database": "ready",
         "storage_backend": "postgresql",
         "durable_storage": True,
         "environment": "production",
-        "warnings": [],
     }, f"unexpected /ready payload: {ready}"
+    assert ready.get("schema_version") == 7 and ready.get("scope") == "api"
+    assert ready.get("workers") == "not_observed" and ready.get("system_operational") is None
 
     status, health = fetch_json(base, "/health")
     assert status == 200 and health.get("ok") is True, f"unexpected /health: {status} {health}"
@@ -68,6 +70,35 @@ def main() -> int:
 
     status, _, _ = fetch(base, "/v1/overview")
     assert status == 401, f"protected route without workspace key returned HTTP {status}"
+    status, _, _ = fetch(base, "/v2/contracts/capabilities")
+    assert status == 401, f"compiler capabilities without workspace key returned HTTP {status}"
+    status, _, _ = fetch(base, "/v1/providers")
+    assert status == 401, f"provider registry without workspace key returned HTTP {status}"
+    status, _, _ = fetch(base, "/v1/browser/checks")
+    assert status == 401, f"browser check catalog without workspace key returned HTTP {status}"
+    for path in ('/v1/assurance/sessions/as_smoke', '/v1/assurance/sessions/as_smoke/receipt'):
+        status, _, _ = fetch(base, path)
+        assert status == 401, f"assurance session without workspace key returned HTTP {status}"
+    status, _, _ = fetch(base, "/v1/connections/provider-metadata")
+    assert status == 401, f"onboarding metadata without administrator key returned HTTP {status}"
+    for path in ("/v1/jobs/vj_smoke", "/v1/jobs/vj_smoke/conditions", "/v1/jobs/vj_smoke/wait"):
+        status, _, _ = fetch(base, path)
+        assert status == 401, f"verification job route without workspace key returned HTTP {status}"
+
+    for path in ("/v1/receipts/vr_smoke/history", "/v1/receipts/vr_smoke/remediation"):
+        status, _, _ = fetch(base, path)
+        assert status == 401, f"recovery route without workspace key returned HTTP {status}"
+    status, script, _ = fetch(base, "/console/recovery.js")
+    assert status == 200 and b"recovery-history" in script
+    status, _, _ = fetch(base, "/v1/connections")
+    assert status == 401, f"connection management without administrator key returned HTTP {status}"
+    status, connections, headers = fetch(base, "/connections")
+    assert status == 200 and b"Connection Settings" in connections
+    normalized_headers = {key.lower(): value for key, value in headers.items()}
+    assert normalized_headers.get("cache-control") == "no-store"
+    assert "script-src 'self';" in normalized_headers.get("content-security-policy", "")
+    status, console, _ = fetch(base, "/console")
+    assert status == 200 and b'href="/connections"' in console and b"Verification history" in console
 
     status, landing, _ = fetch(base, "/")
     assert status == 200 and b"Agents act" in landing and b"DoneProof" in landing

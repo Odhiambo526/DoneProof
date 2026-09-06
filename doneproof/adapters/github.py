@@ -35,9 +35,10 @@ def _parse_time(value: Any) -> datetime | None:
 class GitHubAdapter(ProviderAdapter):
     API = "https://api.github.com"
 
-    def __init__(self, token: str | None = None, transport: httpx.AsyncBaseTransport | None = None):
-        self.token = token or os.getenv("GITHUB_TOKEN")
+    def __init__(self, token: str | None = None, transport: httpx.AsyncBaseTransport | None = None, *, allow_env=True, response_hooks=None):
+        self.token = token or (os.getenv("GITHUB_TOKEN") if allow_env else None)
         self.transport = transport
+        self.response_hooks = response_hooks or []
 
     def _headers(self) -> dict[str, str]:
         h = {
@@ -53,8 +54,10 @@ class GitHubAdapter(ProviderAdapter):
         return httpx.AsyncClient(
             timeout=12.0,
             follow_redirects=False,
+            trust_env=False,
             transport=self.transport,
             headers=self._headers(),
+            event_hooks={"response": self.response_hooks},
         )
 
     async def observe(self, selector: dict[str, Any], context: ObservationContext) -> ProviderObservation:
@@ -108,6 +111,8 @@ class GitHubAdapter(ProviderAdapter):
         candidates: list[dict[str, Any]] = []
 
         async with self._client() as client:
+            complete = False
+            malformed = False
             for page in range(1, _MAX_DISCOVERY_PAGES + 1):
                 params: dict[str, Any] = {
                     "state": "all",
@@ -141,6 +146,7 @@ class GitHubAdapter(ProviderAdapter):
                         continue
                     created_at = _parse_time(item.get("created_at"))
                     if created_at is None:
+                        malformed = True
                         continue
                     if created_at < created_after:
                         reached_time_bound = True
@@ -158,8 +164,12 @@ class GitHubAdapter(ProviderAdapter):
                     candidates.append(item)
 
                 if len(items) < 100 or reached_time_bound:
+                    complete = True
                     break
 
+        if not complete or malformed:
+            return ProviderObservation(None, source_url=url, indeterminate=True,
+                note="GitHub discovery was incomplete; absence and uniqueness cannot be established.")
         if not candidates:
             return ProviderObservation(
                 state=None,
@@ -225,3 +235,19 @@ class GitHubAdapter(ProviderAdapter):
                 }
             )
         return out
+
+
+def provider_definition():
+    from .builtin_provider import definition
+    return definition({
+        "provider_id": "github", "display_name": "GitHub", "resource_types": ("issue", "pull_request"),
+        "description": "Issues and pull requests with time-bounded resource discovery. Public anonymous reads are supported when no connection exists.",
+        "discovery": {"supported": True, "identity_field": "number", "identity_schema": {"type": "integer", "minimum": 1, "maximum": 2**53-1},
+                      "scope_fields": ("repo", "kind"), "boundary_field": "created_after"},
+        "authentication": {"mode": "managed_oauth", "requirements": ("Read-only GitHub App issues and pull_requests permissions on installed repositories",),
+                           "public_read": True, "authorization_origin": "https://github.com", "onboarding_order": 1},
+        "rate_limit": {"concurrency": 8, "preflight_concurrency": 4, "attempts": 4, "base_seconds": 1.0, "cap_seconds": 60.0},
+        "evidence_sensitivity": "confidential",
+        "compiler_instructions": "GitHub discovery requires exact title, repo and kind. Existing issue/PR mutations require transitions. No review approval or code correctness evidence.",
+    }, lambda runtime: GitHubAdapter(token=runtime.credentials["access_token"] if runtime.credentials else None,
+            allow_env=False, transport=runtime.transport, response_hooks=list(runtime.response_hooks)))

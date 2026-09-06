@@ -4,7 +4,7 @@ import base64
 import binascii
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
@@ -50,29 +50,43 @@ def _default_db_path() -> str:
 @dataclass(frozen=True)
 class WebhookSource:
     tenant_id: str
-    secret: str
+    secret: str = field(repr=False)
 
 
 @dataclass(frozen=True)
 class Settings:
     env: str
     db_path: str
-    api_keys: dict[str, str]
+    api_keys: dict[str, str] = field(repr=False)
     cors_origins: tuple[str, ...]
     verification_timeout_seconds: float
-    openai_api_key: str | None
+    openai_api_key: str | None = field(repr=False)
     openai_model: str
-    github_token: str | None
-    gmail_tokens: dict[str, str]
-    gmail_access_token: str | None
-    webhook_sources: dict[str, WebhookSource]
+    github_token: str | None = field(repr=False)
+    gmail_tokens: dict[str, str] = field(repr=False)
+    gmail_access_token: str | None = field(repr=False)
+    webhook_sources: dict[str, WebhookSource] = field(repr=False)
     webhook_max_skew_seconds: int
-    signing_seed_b64: str | None
-    legacy_receipt_key: str | None
+    signing_seed_b64: str | None = field(repr=False)
+    legacy_receipt_key: str | None = field(repr=False)
     max_body_bytes: int
     requests_per_minute: int
     max_batch_size: int
-    database_url: str | None = None
+    database_url: str | None = field(default=None, repr=False)
+    connection_admin_keys: dict[str, str] = field(default_factory=dict, repr=False)
+    connection_encryption_keys: dict[str, str] = field(default_factory=dict, repr=False)
+    connection_active_key: str | None = None
+    connection_public_url: str | None = None
+    google_client_id: str | None = None
+    google_client_secret: str | None = field(default=None, repr=False)
+    github_client_id: str | None = None
+    github_client_secret: str | None = field(default=None, repr=False)
+    github_app_slug: str | None = None
+    legacy_connection_tenant: str | None = None
+    job_callbacks: dict[str, dict[str, dict[str, str]]] = field(default_factory=dict, repr=False)
+    compiler_reasoning_effort: str = "low"
+    max_reverification_attempts: int = 5
+    browser_checks: dict = field(default_factory=dict, repr=False)
 
     @property
     def storage_dsn(self) -> str:
@@ -91,7 +105,7 @@ class Settings:
 
     @property
     def is_production(self) -> bool:
-        return self.env.lower() == "production"
+        return self.env.lower() in {"production", "staging"}
 
     def gmail_token_for(self, tenant_id: str) -> str | None:
         return self.gmail_tokens.get(tenant_id) or self.gmail_access_token
@@ -150,4 +164,18 @@ def get_settings() -> Settings:
         requests_per_minute=int(os.getenv("DONEPROOF_REQUESTS_PER_MINUTE", "120")),
         max_batch_size=int(os.getenv("DONEPROOF_MAX_BATCH_SIZE", "25")),
         database_url=os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL"),
+        connection_admin_keys=_json("DONEPROOF_CONNECTION_ADMIN_KEYS_JSON", {}),
+        connection_encryption_keys=_json("DONEPROOF_CONNECTION_ENCRYPTION_KEYS_JSON", {}),
+        connection_active_key=os.getenv("DONEPROOF_CONNECTION_ACTIVE_KEY"),
+        connection_public_url=os.getenv("DONEPROOF_PUBLIC_URL"),
+        google_client_id=os.getenv("DONEPROOF_GOOGLE_CLIENT_ID"),
+        google_client_secret=os.getenv("DONEPROOF_GOOGLE_CLIENT_SECRET"),
+        github_client_id=os.getenv("DONEPROOF_GITHUB_CLIENT_ID"),
+        github_client_secret=os.getenv("DONEPROOF_GITHUB_CLIENT_SECRET"),
+        github_app_slug=os.getenv("DONEPROOF_GITHUB_APP_SLUG"),
+        legacy_connection_tenant=os.getenv("DONEPROOF_LEGACY_CONNECTION_TENANT"),
+        job_callbacks=_json("DONEPROOF_JOB_CALLBACKS_JSON", {}),
+        max_reverification_attempts=int(os.getenv("DONEPROOF_MAX_REVERIFICATION_ATTEMPTS", "5")),
+        compiler_reasoning_effort=os.getenv("DONEPROOF_COMPILER_REASONING_EFFORT", "low"),
+        browser_checks=_json("DONEPROOF_BROWSER_CHECKS_JSON", {}),
     )

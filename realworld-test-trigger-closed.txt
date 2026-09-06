@@ -1,0 +1,1 @@
+Trigger the isolated real-world verifier after DoneProof issue #13 was closed.

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Completion Contract Compiler v2
+
+- Add staged compilation with deterministic parsing, grounded Astra candidates, static analysis, tenant-bound selector resolution and structured clarification responses.
+- Add bounded low/medium-to-high/xhigh reasoning escalation, measured token usage and structural quality metadata outside receipts.
+- Preserve existing contract/receipt schemas and make incomplete provider discovery return UNKNOWN.
+- Add a 125-task evaluation corpus, counterexample checks, compiler security/integration tests and CI evaluation artifacts.
+
 ## 0.9.4
 
 - Centralized runtime/client/provider version reporting to prevent stale integration identifiers.
