@@ -211,12 +211,24 @@ class JobStore(ConnectionStore):
         with self.transaction() as con:
             return bool(self._owned(con, job))
 
-    def claim(self, lease_seconds):
+    def claim(self, lease_seconds, *, exclude_providers=(), require_providers=()):
+        # Partition whole jobs, including mixed-provider contracts. No schema or
+        # evidence changes; incapable processes must never consume browser work.
+        for provider in (*exclude_providers, *require_providers):
+            self.registry.require(provider)
+        clauses, params = [], []
+        for providers, operator in ((exclude_providers, "NOT EXISTS"), (require_providers, "EXISTS")):
+            if providers:
+                clauses.append(operator + """ (SELECT 1 FROM verification_conditions c
+                    WHERE c.tenant_id=verification_jobs.tenant_id AND c.job_id=verification_jobs.id
+                    AND c.provider IN (""" + ",".join("?" for _ in providers) + "))")
+                params.extend(providers)
         with self.transaction() as con:
             now = self.now(con)
             job = self._row(self.execute(con, """SELECT * FROM verification_jobs WHERE finished_at IS NULL
                 AND ((next_run_at<=? AND lease_until<=?) OR deadline_at<=?)
-                ORDER BY next_run_at,created_at LIMIT 1""" + self.lock(skip=True), (now, now, now)))
+                """ + (" AND " + " AND ".join(clauses) if clauses else "") +
+                " ORDER BY next_run_at,created_at LIMIT 1" + self.lock(skip=True), (now, now, now, *params)))
             if not job:
                 return None
             if job["deadline_at"] <= now:

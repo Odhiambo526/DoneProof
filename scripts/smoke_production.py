@@ -41,14 +41,16 @@ def main() -> int:
 
     status, ready = fetch_json(base, "/ready")
     assert status == 200, f"/ready HTTP {status}: {ready}"
-    assert ready == {
+    assert {k: ready.get(k) for k in (
+        "ready", "database", "storage_backend", "durable_storage", "environment")} == {
         "ready": True,
         "database": "ready",
         "storage_backend": "postgresql",
         "durable_storage": True,
         "environment": "production",
-        "warnings": [],
     }, f"unexpected /ready payload: {ready}"
+    assert ready.get("schema_version") == 7 and ready.get("scope") == "api"
+    assert ready.get("workers") == "not_observed" and ready.get("system_operational") is None
 
     status, health = fetch_json(base, "/health")
     assert status == 200 and health.get("ok") is True, f"unexpected /health: {status} {health}"

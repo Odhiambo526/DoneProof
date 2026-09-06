@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 import httpx
 
+from ..http import bounded_request
 from ..provider_errors import ProviderFailure
 from ..retries import transient_exception, transient_response
 
@@ -45,9 +46,9 @@ class BuiltinOAuthProvider:
 
     async def request(self, method, url, **kwargs):
         try:
-            async with httpx.AsyncClient(timeout=15, follow_redirects=False, transport=self.transport,
+            async with httpx.AsyncClient(timeout=15, follow_redirects=False, transport=self.transport, trust_env=False,
                     headers={"Accept": "application/json", "User-Agent": "DoneProof-connections"}) as client:
-                response = await client.request(method, url, **kwargs)
+                response = await bounded_request(client, method, url, max_bytes=1024 * 1024, **kwargs)
             failure = transient_response(response)
             if failure:
                 raise ProviderFailure(failure.code, transient=True, retry_after=failure.retry_after)

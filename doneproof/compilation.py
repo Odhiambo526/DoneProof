@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import re
 import time
 from datetime import datetime, timezone
@@ -40,6 +42,10 @@ class ContractCompiler:
             usage.complete = not usage.efforts
             result = self._result([issue("compilation_deadline")], usage=usage, deterministic=not usage.efforts)
         result.latency_ms = round((time.perf_counter() - started) * 1000, 3)
+        logging.getLogger("doneproof.compiler").info(json.dumps({
+            "event": "compilation_finished", "status": result.status, "latency_ms": result.latency_ms,
+            "deterministic": result.deterministic, "model_calls": len(result.usage.efforts),
+            "escalations": len(result.usage.escalation_reasons)}))
         return result
 
     async def _compile(self, task, context, tenant, task_started_at, usage):

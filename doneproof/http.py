@@ -13,13 +13,34 @@ from .retries import (
     transient_response,
 )
 
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+
+
+async def bounded_request(client, method, url, *, max_bytes=MAX_RESPONSE_BYTES, **kwargs):
+    """Bound wire bodies before parsing; never include provider content in errors."""
+    headers = dict(kwargs.pop("headers", {}) or {})
+    headers["Accept-Encoding"] = "identity"
+    async with client.stream(method, url, headers=headers, **kwargs) as response:
+        if response.headers.get("content-encoding", "identity").lower() not in {"", "identity"}:
+            raise httpx.DecodingError("Unsupported provider response encoding")
+        length = response.headers.get("content-length")
+        if length and (not length.isdecimal() or int(length) > max_bytes):
+            raise httpx.DecodingError("Provider response exceeds limit")
+        body = bytearray()
+        async for chunk in response.aiter_bytes(chunk_size=65536):
+            if len(body) + len(chunk) > max_bytes:
+                raise httpx.DecodingError("Provider response exceeds limit")
+            body.extend(chunk)
+        return httpx.Response(response.status_code, headers=response.headers, content=bytes(body),
+                              request=response.request, extensions=response.extensions)
+
 
 async def resilient_get(client: httpx.AsyncClient, url: str, *, attempts: int = 3, **kwargs: Any) -> httpx.Response:
     durable = durable_observation.get()
     policy = RetryPolicy(attempts, 0.15, 2.0)
     for attempt in range(1, (1 if durable else attempts) + 1):
         try:
-            response = await client.get(url, **kwargs)
+            response = await bounded_request(client, "GET", url, **kwargs)
         except httpx.HTTPError as exc:
             if not transient_exception(exc):
                 raise

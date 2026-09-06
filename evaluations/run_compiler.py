@@ -159,6 +159,8 @@ def summarize(rows, mode):
         "negative_worlds_checked": sum(r["negative_worlds_checked"] for r in rows),
         "compilation_latency_ms": {"p50": statistics.median(latency), "p95": latency[math.ceil(len(latency) * .95) - 1], "max": max(latency)},
         "token_usage": {**tokens, "complete": complete, "model_calls": sum(len(r["usage"]["efforts"]) for r in rows)},
+        "model_escalation_rate": ratio(sum(len(r["usage"]["efforts"]) > 1 for r in rows),
+                                      sum(bool(r["usage"]["efforts"]) for r in rows)),
         "estimated_token_cost_usd": round(cost, 8) if complete else None,
         "pricing": {"as_of": "2026-09-05", "model": "gpt-6-astra", "per_million":
                     {"input": 10, "cached_input": 1, "cache_write": 12.5, "output": 50},
@@ -167,11 +169,15 @@ def summarize(rows, mode):
     }
 
 
-async def evaluate(mode="offline", limit=None):
+async def evaluate(mode="offline", limit=None, *, release_candidate=False):
     settings = get_settings()
     if mode == "live" and not settings.openai_api_key:
         raise RuntimeError("Live evaluation requires OPENAI_API_KEY in the process environment.")
-    cases = corpus()[:limit]
+    cases = corpus()
+    if release_candidate:
+        from evaluations.rc_corpus import rc_corpus
+        cases += rc_corpus()
+    cases = cases[:limit]
     rows = [await evaluate_case(case, settings, mode) for case in cases]
     return {"evaluated_at": datetime.now(timezone.utc).isoformat(), "python": platform.python_version(),
             "summary": summarize(rows, mode), "cases": rows}
@@ -183,15 +189,18 @@ def main():
     parser.add_argument("--limit", type=int)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--export-corpus", type=Path)
+    parser.add_argument("--release-candidate", action="store_true")
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be positive")
-    result = asyncio.run(evaluate(args.mode, args.limit))
+    result = asyncio.run(evaluate(args.mode, args.limit, release_candidate=args.release_candidate))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     if args.export_corpus:
         args.export_corpus.parent.mkdir(parents=True, exist_ok=True)
-        args.export_corpus.write_text("".join(json.dumps(c) + "\n" for c in corpus()), encoding="utf-8")
+        from evaluations.rc_corpus import rc_corpus
+        cases = corpus() + (rc_corpus() if args.release_candidate else [])
+        args.export_corpus.write_text("".join(json.dumps(c) + "\n" for c in cases), encoding="utf-8")
     print(json.dumps(result["summary"], indent=2))
     return int(result["summary"]["false_certifiable_contract_rate"]["numerator"] != 0)
 

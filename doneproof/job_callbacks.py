@@ -1,6 +1,7 @@
 """Completion delivery to operator-configured, tenant-owned HTTPS destinations."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import ipaddress
@@ -58,7 +59,7 @@ class CallbackRegistry:
     async def deliver(self, db, row, transport=None):
         target = self.get(row["tenant_id"], row["callback_id"])
         if not target or target["fingerprint"] != row["callback_fingerprint"]:
-            db.finish_callback(row, "DEAD", "callback_configuration_changed")
+            await asyncio.to_thread(db.finish_callback, row, "DEAD", "callback_configuration_changed")
             return
         timestamp = str(int(time.time()))
         payload = row["payload_json"].encode()
@@ -72,17 +73,17 @@ class CallbackRegistry:
                     "X-DoneProof-Timestamp": timestamp, "X-DoneProof-Signature": "sha256=" + signature,
                 }) as response:
                     if 200 <= response.status_code < 300:
-                        db.finish_callback(row, "DELIVERED")
+                        await asyncio.to_thread(db.finish_callback, row, "DELIVERED")
                         return
                     failure = transient_response(response, provider_errors=False)
                     if not failure:
-                        db.finish_callback(row, "DEAD", "callback_rejected")
+                        await asyncio.to_thread(db.finish_callback, row, "DEAD", "callback_rejected")
                         return
                     delay = CALLBACK_POLICY.delay(row["attempts"], failure.retry_after)
         except httpx.HTTPError as exc:
             if not transient_exception(exc):
-                db.finish_callback(row, "DEAD", "callback_unavailable")
+                await asyncio.to_thread(db.finish_callback, row, "DEAD", "callback_unavailable")
                 return
             delay = CALLBACK_POLICY.delay(row["attempts"])
-        db.finish_callback(row, "PENDING" if row["attempts"] < CALLBACK_POLICY.attempts else "DEAD",
-                           "callback_unavailable", delay)
+        await asyncio.to_thread(db.finish_callback, row, "PENDING" if row["attempts"] < CALLBACK_POLICY.attempts else "DEAD",
+                                "callback_unavailable", delay)

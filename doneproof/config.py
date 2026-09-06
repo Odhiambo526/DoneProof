@@ -50,29 +50,29 @@ def _default_db_path() -> str:
 @dataclass(frozen=True)
 class WebhookSource:
     tenant_id: str
-    secret: str
+    secret: str = field(repr=False)
 
 
 @dataclass(frozen=True)
 class Settings:
     env: str
     db_path: str
-    api_keys: dict[str, str]
+    api_keys: dict[str, str] = field(repr=False)
     cors_origins: tuple[str, ...]
     verification_timeout_seconds: float
-    openai_api_key: str | None
+    openai_api_key: str | None = field(repr=False)
     openai_model: str
-    github_token: str | None
-    gmail_tokens: dict[str, str]
-    gmail_access_token: str | None
-    webhook_sources: dict[str, WebhookSource]
+    github_token: str | None = field(repr=False)
+    gmail_tokens: dict[str, str] = field(repr=False)
+    gmail_access_token: str | None = field(repr=False)
+    webhook_sources: dict[str, WebhookSource] = field(repr=False)
     webhook_max_skew_seconds: int
-    signing_seed_b64: str | None
-    legacy_receipt_key: str | None
+    signing_seed_b64: str | None = field(repr=False)
+    legacy_receipt_key: str | None = field(repr=False)
     max_body_bytes: int
     requests_per_minute: int
     max_batch_size: int
-    database_url: str | None = None
+    database_url: str | None = field(default=None, repr=False)
     connection_admin_keys: dict[str, str] = field(default_factory=dict, repr=False)
     connection_encryption_keys: dict[str, str] = field(default_factory=dict, repr=False)
     connection_active_key: str | None = None
@@ -105,7 +105,7 @@ class Settings:
 
     @property
     def is_production(self) -> bool:
-        return self.env.lower() == "production"
+        return self.env.lower() in {"production", "staging"}
 
     def gmail_token_for(self, tenant_id: str) -> str | None:
         return self.gmail_tokens.get(tenant_id) or self.gmail_access_token
