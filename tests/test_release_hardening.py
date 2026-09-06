@@ -87,6 +87,32 @@ def test_worker_database_wait_does_not_block_event_loop(jobs, monkeypatch):  # n
     asyncio.run(run())
 
 
+def test_shutdown_drains_inflight_claim_without_orphan_lease(jobs, monkeypatch):  # noqa: F811
+    _, client, worker, provider = jobs
+    identifier = submit(client)
+    entered, release = threading.Event(), threading.Event()
+    original = worker.db.claim
+    def blocked(*args, **kwargs):
+        entered.set()
+        assert release.wait(3)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(worker.db, "claim", blocked)
+    async def run():
+        task = asyncio.create_task(worker.tick())
+        assert await asyncio.to_thread(entered.wait, 2)
+        task.cancel()
+        await asyncio.sleep(0)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        monkeypatch.setattr(worker.db, "claim", original)
+        # No sleep, lease expiry or test clock adjustment is needed to resume.
+        result = await asyncio.wait_for(worker.run_until_terminal("tenant-a", identifier), 5)
+        assert result["state"] == "COMPLETE"
+        assert len(provider.calls) == 1
+    asyncio.run(run())
+
+
 def test_worker_partitions_whole_browser_jobs(connection_settings):
     app, client, _, _ = app_for(connection_settings)
     identifier = submit(client, browser_payload(), A)

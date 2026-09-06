@@ -78,7 +78,20 @@ class VerificationWorker:
             receipt_id=job["receipt_id"], verified_at=now, duration_ms=max(0, (now - created).total_seconds() * 1000))
         self.db.save_evaluation(job, receipt, self.engine.signer.key_id)
 
+    async def _drain_on_shutdown(self, operation):
+        # Cancelling to_thread does not stop its database transaction. Drain the
+        # current bounded stage before shutdown so no late claim is orphaned.
+        stage = asyncio.create_task(operation())
+        try:
+            return await asyncio.shield(stage)
+        except asyncio.CancelledError:
+            await stage
+            raise
+
     async def tick(self):
+        return await self._drain_on_shutdown(self._tick)
+
+    async def _tick(self):
         job = await asyncio.to_thread(self.db.claim, self.lease_seconds, exclude_providers=self.exclude_providers,
                                       require_providers=self.require_providers)
         if not job:
@@ -103,9 +116,14 @@ class VerificationWorker:
         return True
 
     async def recovery_tick(self):
-        return await asyncio.to_thread(self.recovery.dispatch_event)
+        async def dispatch():
+            return await asyncio.to_thread(self.recovery.dispatch_event)
+        return await self._drain_on_shutdown(dispatch)
 
     async def callback_tick(self):
+        return await self._drain_on_shutdown(self._callback_tick)
+
+    async def _callback_tick(self):
         row = await asyncio.to_thread(self.db.claim_callback)
         if not row:
             return False
