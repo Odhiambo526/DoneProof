@@ -12,7 +12,6 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
-from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -112,7 +111,10 @@ def create_app(
             # Pydantic errors otherwise echo input values, which may contain credentials.
             return JSONResponse(status_code=422, content={"detail": "Invalid compilation request."},
                                 headers={"Cache-Control": "no-store"})
-        return await request_validation_exception_handler(request, exc)
+        # Legacy routes retain 422 without reflecting arbitrary invalid customer
+        # values or credentials through Pydantic's input/context fields.
+        return JSONResponse(status_code=422, content={"detail": "Invalid request."},
+                            headers={"Cache-Control": "no-store"})
 
     if settings.cors_origins:
         app.add_middleware(

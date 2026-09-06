@@ -45,6 +45,12 @@ def test_chunked_body_bound_and_caller_text_absent_from_logs(auth_settings, capl
     assert "secret-sentinel" not in caplog.text and "key-a" not in caplog.text
 
 
+def test_legacy_validation_does_not_echo_sensitive_invalid_input(auth_settings):
+    response = TestClient(create_app(auth_settings)).post("/v1/contracts/compile",
+        headers={"X-DoneProof-Key": "key-a"}, json={"task": {"api_key": "secret-sentinel"}})
+    assert response.status_code == 422 and "secret-sentinel" not in response.text
+
+
 def test_settings_repr_cannot_export_credentials(connection_settings):
     configured = replace(connection_settings, database_url="secret-dsn-sentinel", openai_api_key="model-secret-sentinel")
     value = repr(configured)
