@@ -267,9 +267,18 @@ class Store:
                 cur.execute("SELECT pg_advisory_xact_lock(%s)", (0x444F4E4550524F4F,))
                 cur.execute("SELECT to_regclass('schema_migrations') AS existing")
                 if cur.fetchone()["existing"]:
-                    cur.execute("SELECT MAX(version) AS version FROM schema_migrations")
-                    if (cur.fetchone()["version"] or 0) > SCHEMA_VERSION:
+                    cur.execute("SELECT version FROM schema_migrations ORDER BY version")
+                    versions = [row["version"] for row in cur.fetchall()]
+                    if versions and versions[-1] > SCHEMA_VERSION:
                         raise RuntimeError("Unsupported database schema version")
+                    if versions != list(range(1, len(versions) + 1)):
+                        raise RuntimeError("Incomplete database migration history")
+                    if versions == list(range(1, SCHEMA_VERSION + 1)):
+                        # Replaying ALTER TABLE on every worker restart takes
+                        # exclusive locks and can deadlock active verification.
+                        # A current, contiguous ledger needs only registry slots.
+                        synchronize_slots(con, self.registry, pg=True)
+                        return
                 for statement in statements:
                     cur.execute(statement)
                 cur.execute(

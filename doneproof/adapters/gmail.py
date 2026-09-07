@@ -27,11 +27,11 @@ class GmailAdapter(ProviderAdapter):
             follow_redirects=False,
             trust_env=False,
             transport=self.transport,
-            event_hooks={"response": self.response_hooks},
             headers={
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/json",
                 "User-Agent": f"doneproof/{__version__}",
+                "Cache-Control": "no-cache, no-store",
             },
         )
 
@@ -53,7 +53,7 @@ class GmailAdapter(ProviderAdapter):
     async def _fetch_message(self, token: str, message_id: str) -> ProviderObservation:
         url = f"{self.API}/messages/{message_id}"
         async with self._client(token) as client:
-            r = await resilient_get(client, url, params={"format": "full"})
+            r = await resilient_get(client, response_hooks=self.response_hooks, url=url, params={"format": "full"})
         if r.status_code == 404:
             return ProviderObservation(state=None, source_url=url, note="Gmail message was not found.")
         if r.status_code in {401, 403}:
@@ -61,7 +61,11 @@ class GmailAdapter(ProviderAdapter):
                 state=None, source_url=url, note="Gmail connection could not access the mailbox.", indeterminate=True
             )
         r.raise_for_status()
-        return ProviderObservation(state=self._normalize(r.json()), source_url=url)
+        data = r.json()
+        if not isinstance(data, dict) or data.get('id') != message_id or r.headers.get('age', '0') != '0':
+            return ProviderObservation(None, source_url=url, indeterminate=True,
+                note="Gmail resource identity or freshness could not be established.")
+        return ProviderObservation(state=self._normalize(data), source_url=url)
 
     async def _discover(self, token: str, selector: dict[str, Any], context: ObservationContext) -> ProviderObservation:
         created_after = self._parse_time(selector.get("created_after") or context.task_started_at)
@@ -82,7 +86,7 @@ class GmailAdapter(ProviderAdapter):
             q.append(f"to:{to}")
         url = f"{self.API}/messages"
         async with self._client(token) as client:
-            r = await resilient_get(client, url, params={"q": " ".join(q), "maxResults": 100})
+            r = await resilient_get(client, response_hooks=self.response_hooks, url=url, params={"q": " ".join(q), "maxResults": 100})
             if r.status_code in {401, 403}:
                 return ProviderObservation(
                     state=None,
@@ -91,6 +95,9 @@ class GmailAdapter(ProviderAdapter):
                     indeterminate=True,
                 )
             r.raise_for_status()
+            if r.headers.get('age', '0') != '0':
+                return ProviderObservation(None, source_url=url, indeterminate=True,
+                    note="Gmail search freshness could not be established.")
             refs = r.json().get("messages", []) or []
             if r.json().get("nextPageToken") or len(refs) > 100:
                 return ProviderObservation(None, source_url=url, indeterminate=True,
@@ -101,11 +108,15 @@ class GmailAdapter(ProviderAdapter):
                 if not mid:
                     return ProviderObservation(None, source_url=url, indeterminate=True,
                         note="Gmail discovery returned incomplete resource identifiers.")
-                detail = await resilient_get(client, f"{self.API}/messages/{mid}", params={"format": "full"})
+                detail = await resilient_get(client, response_hooks=self.response_hooks, url=f"{self.API}/messages/{mid}", params={"format": "full"})
                 if detail.status_code != 200:
                     return ProviderObservation(None, source_url=url, indeterminate=True,
                         note="Gmail discovery could not read every candidate; absence and uniqueness are unknown.")
-                normalized = self._normalize(detail.json())
+                data = detail.json()
+                if not isinstance(data, dict) or data.get('id') != mid or detail.headers.get('age', '0') != '0':
+                    return ProviderObservation(None, source_url=url, indeterminate=True,
+                        note="Gmail candidate identity or freshness could not be established.")
+                normalized = self._normalize(data)
                 if datetime.fromisoformat(normalized["internal_date"].replace("Z", "+00:00")) < created_after:
                     continue
                 if subject is not None and normalized.get("subject") != subject:
@@ -163,6 +174,8 @@ class GmailAdapter(ProviderAdapter):
             for x in (data.get("payload") or {}).get("headers", [])
         }
         label_ids = set(data.get("labelIds") or [])
+        if "SENT" in label_ids and "DRAFT" in label_ids:
+            raise ValueError("Conflicting Gmail system labels")
         location = "sent" if "SENT" in label_ids else "draft" if "DRAFT" in label_ids else "other"
         internal_ms = int(data.get("internalDate") or 0)
         internal_date = datetime.fromtimestamp(internal_ms / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
@@ -208,7 +221,7 @@ class GmailAdapter(ProviderAdapter):
 def provider_definition():
     from .builtin_provider import definition, gmail_settings
     return definition({
-        "provider_id": "gmail", "display_name": "Gmail", "resource_types": ("message",),
+        "provider_id": "gmail", "version": "1.0.1", "display_name": "Gmail", "resource_types": ("message",),
         "description": "Sent-vs-draft, recipients, subject, thread and attachment metadata.",
         "discovery": {"supported": True, "identity_field": "message_id", "identity_schema": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,200}$"},
                       "boundary_field": "created_after"},

@@ -15,7 +15,7 @@ from . import __version__
 from .assurance_models import AssuranceSession, DurableJob, PrepareSession, ReverifySession, VerifySession
 from .compilation_models import CompilationResult
 from .connection_api import ConnectionList, ConnectionView, DisconnectRequest
-from .domain import CapabilityResponse, VerificationReceipt
+from .domain import CapabilityResponse, CompileRequest, VerificationReceipt
 from .job_models import TERMINAL
 from .retries import retry_after_seconds
 from .sdk_common import (
@@ -209,10 +209,21 @@ class Assurance:
         self._client = client
 
     async def prepare(self, *, task: str, idempotency_key: str, context: dict[str, JsonValue] | None = None,
-                      timeout: float = 150, cancellation: Cancellation | None = None) -> AssuranceSession:
-        return await self._client._request('POST', '/v1/assurance/sessions', AssuranceSession,
-            body=payload(PrepareSession, task=task, context=context or {}), key=mutation_key(idempotency_key),
-            until=time.monotonic() + duration(timeout), cancellation=cancellation)
+                      require_transition: bool = False, timeout: float = 150, cancellation: Cancellation | None = None) -> AssuranceSession:
+        until = time.monotonic() + duration(timeout)
+        body = payload(PrepareSession, task=task, context=context or {}, require_transition=require_transition)
+        if not require_transition:
+            body.pop('require_transition')
+        result = await self._client._request('POST', '/v1/assurance/sessions', AssuranceSession,
+            body=body, key=mutation_key(idempotency_key),
+            until=until, cancellation=cancellation)
+        delay = 0.25
+        while result.state == 'PREPARING':
+            await self._client._sleep(delay * random.uniform(0.5, 1), until, cancellation)
+            result = await self._client._request('GET', '/v1/assurance/sessions/' + identifier(result.id),
+                AssuranceSession, until=until, cancellation=cancellation)
+            delay = min(5, delay * 2)
+        return result
 
     async def get(self, session_id: str) -> AssuranceSession:
         return await self._client._request('GET', '/v1/assurance/sessions/' + identifier(session_id), AssuranceSession)
@@ -270,4 +281,4 @@ class Providers:
     async def for_task(self, *, task: str, context: dict[str, JsonValue] | None = None) -> CompilationResult:
         # Planning is authoritative on the server; no local provider heuristics.
         return await self._client._request('POST', '/v2/contracts/compile', CompilationResult,
-            body=payload(PrepareSession, task=task, context=context or {}))
+            body={k: v for k, v in payload(CompileRequest, task=task, context=context or {}).items() if k != 'task_started_at'})

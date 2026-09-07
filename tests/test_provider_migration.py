@@ -41,7 +41,7 @@ def previous_schema(connection_settings, monkeypatch):
     store.audit("tenant-a", "legacy.event", "contract", contract.id, {"preserved": True})
     with service.db.transaction() as con:
         if service.db.pg:
-            con.execute("DELETE FROM schema_migrations WHERE version=5")
+            con.execute("DELETE FROM schema_migrations WHERE version>=5")
         # Insert the exact old job columns: there was no provider manifest field.
         service.db.execute(con, """INSERT INTO verification_jobs
             (tenant_id,id,idempotency_hash,request_hash,state,contract_json,baselines_json,assurance_level,

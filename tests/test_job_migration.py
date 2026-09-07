@@ -25,7 +25,7 @@ def test_phase1_data_survives_additive_job_migration(connection_settings, monkey
     db = JobStore(legacy)
     if db.pg:
         with db.transaction() as con:
-            con.execute("DELETE FROM schema_migrations WHERE version=3")
+            con.execute("DELETE FROM schema_migrations WHERE version>=3")
     contract = CompletionContract.model_validate(payload()["contract"])
     legacy.save_contract("tenant-a", contract)
     receipt = asyncio.run(VerificationEngine({"github": Provider()}, ReceiptSigner(connection_settings)).verify(contract))

@@ -36,11 +36,14 @@ async def bounded_request(client, method, url, *, max_bytes=MAX_RESPONSE_BYTES, 
 
 
 async def resilient_get(client: httpx.AsyncClient, url: str, *, attempts: int = 3, **kwargs: Any) -> httpx.Response:
+    hooks = kwargs.pop("response_hooks", ())
     durable = durable_observation.get()
     policy = RetryPolicy(attempts, 0.15, 2.0)
     for attempt in range(1, (1 if durable else attempts) + 1):
         try:
             response = await bounded_request(client, "GET", url, **kwargs)
+            for hook in hooks:
+                await hook(response)
         except httpx.HTTPError as exc:
             if not transient_exception(exc):
                 raise

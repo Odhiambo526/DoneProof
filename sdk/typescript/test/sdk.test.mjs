@@ -95,3 +95,34 @@ test('No credential-bearing base URL or cross-origin custom transport path', asy
   const dp = new DoneProof({ apiKey: 'k' });
   await assert.rejects(dp.request('GET', '//evil.example.org', 'CapabilityResponse'), DoneProofError);
 });
+
+test('Preparation replay resumes the original session with bounded polling', async () => {
+  const seen = [];
+  const preparing = { ...ready, state: 'PREPARING', contract: null, compiler: null,
+    trusted_task_started_at: null, baselines: [], providers: [] };
+  const dp = new DoneProof({ apiKey: 'fixture-key', fetch: async (url, options) => {
+    seen.push(options.method);
+    return response(seen.length === 1 ? preparing : ready);
+  } });
+  const session = await dp.assurance.prepare({ task: ready.task, idempotencyKey: 'stable' });
+  assert.equal(session.id, ready.id); assert.equal(session.state, 'READY_FOR_EXECUTION');
+  assert.deepEqual(seen, ['POST', 'GET']);
+});
+
+test('Derived assurance cannot upgrade or hide signed evidence semantics', () => {
+  const receipt = fixtures.receipts[2].receipt;
+  assert.throws(() => parseModel('AssuranceSession', { ...ready, receipt, verdict: receipt.verdict,
+    assurance: { level: 'transition_assured', required_conditions: receipt.results.length,
+      transition_required: 1, transitions_proven: 1, lower_assurance_browser: false, explanation: 'Forged' } }), CompatibilityError);
+});
+
+test('Default preparation does not send new fields to strict older servers', async () => {
+  const seen = [];
+  const dp = new DoneProof({ apiKey: 'fixture-key', fetch: async (url, options) => {
+    seen.push(JSON.parse(options.body)); return response(ready);
+  } });
+  await dp.assurance.prepare({ task: ready.task, idempotencyKey: 'old-server' });
+  await dp.assurance.prepare({ task: ready.task, idempotencyKey: 'new-server', requireTransition: true });
+  assert.equal(Object.hasOwn(seen[0], 'require_transition'), false);
+  assert.equal(seen[1].require_transition, true);
+});

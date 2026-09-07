@@ -303,7 +303,6 @@ class ManagedAdapter(ProviderAdapter):
         async def response_hook(response):
             nonlocal auth_failed
             if durable_observation.get():
-                await response.aread()
                 failure = transient_response(response)
                 if failure:
                     raise failure

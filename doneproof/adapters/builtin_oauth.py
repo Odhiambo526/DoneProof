@@ -154,19 +154,75 @@ class BuiltinOAuthProvider:
             if not account.isdigit() or not isinstance(label, str) or not label or len(label) > 100:
                 raise ValueError
             if credentials.get("kind") == "oauth":
-                data = (await self.request("GET", "https://api.github.com/user/installations?per_page=100",
-                                          headers=headers)).json()
-                installs = data["installations"]
-                if not installs or data["total_count"] > 100:
-                    raise ProviderFailure("installation_required", True)
-                for install in installs:
-                    permissions = install["permissions"]
-                    if (permissions.get("issues") != "read" or permissions.get("pull_requests") != "read"
-                            or any(value != "read" for value in permissions.values())):
-                        raise ProviderFailure("read_only_installation_required", True)
+                await self.installations(credentials)
             return account, label
         except (ValueError, KeyError, TypeError, AttributeError):
             raise ProviderFailure("invalid_provider_response") from None
+
+    async def installations(self, credentials):
+        """Only installations of the configured read-only app establish access."""
+        headers = {"Authorization": "Bearer " + credentials["access_token"],
+                   "X-GitHub-Api-Version": "2022-11-28"}
+        try:
+            data = (await self.request("GET", "https://api.github.com/user/installations",
+                                      headers=headers, params={"per_page": 100})).json()
+            rows, total = data["installations"], data["total_count"]
+            if type(total) is not int or not isinstance(rows, list) or total != len(rows) or total > 100:
+                raise ProviderFailure("installation_list_incomplete")
+            selected = []
+            for row in rows:
+                if row.get("app_slug") != self.settings.github_app_slug:
+                    continue
+                if type(row.get("id")) is not int or row["id"] <= 0 or row.get("suspended_at"):
+                    raise ProviderFailure("installation_unavailable", True)
+                permissions = row["permissions"]
+                if (not isinstance(permissions, dict) or permissions.get("issues") != "read"
+                        or permissions.get("pull_requests") != "read"
+                        or any(value != "read" for value in permissions.values())):
+                    raise ProviderFailure("read_only_installation_required", True)
+                selected.append(row)
+            if not selected:
+                raise ProviderFailure("installation_required", True)
+            return selected
+        except (KeyError, TypeError, AttributeError, ValueError):
+            raise ProviderFailure("invalid_provider_response") from None
+
+    async def repositories(self, credentials):
+        if credentials.get("kind") != "oauth":
+            raise ProviderFailure("managed_oauth_required", True)
+        installs = await self.installations(credentials)
+        headers = {"Authorization": "Bearer " + credentials["access_token"],
+                   "X-GitHub-Api-Version": "2022-11-28"}
+        resources = {}
+        for install in installs:
+            seen = 0
+            for page in range(1, 6):
+                try:
+                    data = (await self.request("GET",
+                        f"https://api.github.com/user/installations/{install['id']}/repositories",
+                        headers=headers, params={"per_page": 100, "page": page})).json()
+                    rows, total = data["repositories"], data["total_count"]
+                    if type(total) is not int or not isinstance(rows, list) or not 0 <= total <= 500 or len(rows) > 100:
+                        raise ValueError
+                    for row in rows:
+                        from .github import _REPO
+                        if (type(row["id"]) is not int or row["id"] <= 0 or not isinstance(row["full_name"], str)
+                                or not _REPO.fullmatch(row["full_name"]) or type(row["private"]) is not bool):
+                            raise ValueError
+                        if row["id"] in resources:
+                            raise ValueError
+                        resources[row["id"]] = {"id": row["id"], "repository": row["full_name"],
+                                               "private": row["private"], "installation_id": install["id"]}
+                    seen += len(rows)
+                    if len(resources) > 500:
+                        raise ValueError
+                    if seen == total:
+                        break
+                    if not rows or seen > total or page == 5:
+                        raise ValueError
+                except (KeyError, TypeError, ValueError):
+                    raise ProviderFailure("repository_list_incomplete") from None
+        return sorted(resources.values(), key=lambda row: row["repository"].casefold())
 
     async def revoke(self, provider, credentials):
         if provider == "gmail":

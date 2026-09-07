@@ -80,7 +80,7 @@ def validate_configuration(provider, settings):
 def definition(manifest, factory):
     name = manifest["provider_id"]
     evidence, selector = schemas(name)
-    manifest.update(version="1.0.0", evidence_schema=evidence, selector_schema=selector,
+    manifest.update(version=manifest.get('version', '1.0.0'), evidence_schema=evidence, selector_schema=selector,
                     supported_predicates=tuple(sorted({"eq", "neq", "exists", "not_exists", "contains", "contains_all", "gte", "lte"})),
                     baseline_support=True, transition_support=True,
                     context_fields=tuple(sorted(analysis.BINDINGS & (analysis.SELECTORS[name]

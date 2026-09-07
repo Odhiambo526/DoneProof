@@ -131,13 +131,13 @@ def corpus():
         mail("Check Gmail message msg102 is draft", "msg102", "location", "draft"),
         mail("Verify Gmail message msg103 is sent", "msg103", "location", "sent"),
         mail("Check Gmail message msg104 is draft", "msg104", "location", "draft"),
-        mail("Send Gmail draft msg105", "msg105", "location", "sent", change=True, before={"location": "draft"}),
-        mail("Send Gmail draft msg106", "msg106", "location", "sent", change=True, before={"location": "draft"}),
+        invalid("gmail", "Send Gmail draft msg105", "missing_identifier"),
+        invalid("gmail", "Send Gmail draft msg106", "missing_identifier"),
         mail('Verify Gmail message msg107 has attachment "invoice.pdf"', "msg107", "attachment_names", ["invoice.pdf"], op="contains_all"),
         mail('Check Gmail message msg108 has attachment "rollout.csv"', "msg108", "attachment_names", ["rollout.csv"], op="contains_all"),
         mail('Verify Gmail message msg109 has attachment "Board pack Q3.pdf"', "msg109", "attachment_names", ["Board pack Q3.pdf"], op="contains_all"),
         mail("Confirm that message msg101 in Gmail is in Sent", "msg101", "location", "sent"),
-        mail("Move Gmail draft msg105 to Sent", "msg105", "location", "sent", change=True, before={"location": "draft"}),
+        invalid("gmail", "Move Gmail draft msg105 to Sent", "missing_identifier"),
     ])
     for recipient, subject, attachment in [
         ("ana@example.com", "Q3 report", "report.pdf"), ("finance@example.org", "Invoice 482", "invoice-482.pdf"),

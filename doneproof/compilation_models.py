@@ -83,6 +83,7 @@ def issue(code, category="unverifiable_outcome", *, ids=(), fields=()):
     messages = {
         "unsupported_provider": "This outcome has no supported authoritative provider.",
         "missing_identifier": "Supply the required resource identifiers or exact discovery constraints.",
+        "gmail_draft_identity_changes": "Sending a Gmail draft creates a new message ID. Supply an exact unique subject and recipient, and prepare before creating or sending the message.",
         "ungrounded_identifier": "An identifier was not supplied by the caller or resolved by the provider.",
         "ambiguous_resource": "Multiple resources or interpretations match; supply an exact identifier or clarify the outcome.",
         "provider_unavailable": "Connect or reconnect the workspace provider, then retry compilation.",

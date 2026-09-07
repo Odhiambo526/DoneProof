@@ -45,6 +45,7 @@ class GitHubAdapter(ProviderAdapter):
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": f"doneproof/{__version__}",
+            "Cache-Control": "no-cache, no-store",
         }
         if self.token:
             h["Authorization"] = f"Bearer {self.token}"
@@ -57,7 +58,6 @@ class GitHubAdapter(ProviderAdapter):
             trust_env=False,
             transport=self.transport,
             headers=self._headers(),
-            event_hooks={"response": self.response_hooks},
         )
 
     async def observe(self, selector: dict[str, Any], context: ObservationContext) -> ProviderObservation:
@@ -80,7 +80,7 @@ class GitHubAdapter(ProviderAdapter):
         path = "issues" if kind == "issue" else "pulls"
         url = f"{self.API}/repos/{repo}/{path}/{number}"
         async with self._client() as client:
-            r = await resilient_get(client, url)
+            r = await resilient_get(client, response_hooks=self.response_hooks, url=url)
         if r.status_code == 404:
             return ProviderObservation(
                 state=None,
@@ -90,6 +90,10 @@ class GitHubAdapter(ProviderAdapter):
             )
         r.raise_for_status()
         data = r.json()
+        if (not isinstance(data, dict) or type(data.get('number')) is not int or data['number'] != number
+                or kind == 'issue' and 'pull_request' in data or r.headers.get('age', '0') != '0'):
+            return ProviderObservation(None, source_url=url, indeterminate=True,
+                note="GitHub resource identity or freshness could not be established.")
         normalized = self._normalize(kind, data)
         return ProviderObservation(state=normalized, source_url=data.get("html_url") or url)
 
@@ -126,7 +130,7 @@ class GitHubAdapter(ProviderAdapter):
                 if kind == "issue":
                     params["since"] = created_after.isoformat().replace("+00:00", "Z")
 
-                r = await resilient_get(client, url, params=params)
+                r = await resilient_get(client, response_hooks=self.response_hooks, url=url, params=params)
                 if r.status_code == 404:
                     return ProviderObservation(
                         state=None,
@@ -240,7 +244,7 @@ class GitHubAdapter(ProviderAdapter):
 def provider_definition():
     from .builtin_provider import definition
     return definition({
-        "provider_id": "github", "display_name": "GitHub", "resource_types": ("issue", "pull_request"),
+        "provider_id": "github", "version": "1.0.1", "display_name": "GitHub", "resource_types": ("issue", "pull_request"),
         "description": "Issues and pull requests with time-bounded resource discovery. Public anonymous reads are supported when no connection exists.",
         "discovery": {"supported": True, "identity_field": "number", "identity_schema": {"type": "integer", "minimum": 1, "maximum": 2**53-1},
                       "scope_fields": ("repo", "kind"), "boundary_field": "created_after"},

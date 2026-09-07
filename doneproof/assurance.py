@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from .assurance_models import AssuranceSession, DurableJob, EvidenceAssurance, ReceiptLink
+from .assurance_models import AssuranceSession, DurableJob, EvidenceAssurance, ReceiptLink, assurance_summary
 from .compilation_models import CompilationResult, issue
 from .domain import ConditionStatus
 from .job_models import TERMINAL
@@ -37,7 +37,8 @@ class AssuranceService(RecoveryStore):
     def reserve(self, tenant, key, req):
         with self.transaction() as con:
             now = self.now(con)
-            identifier, request_hash = 'as_' + uuid4().hex, digest(canonical(req.model_dump(mode='json')))
+            request_data = req.model_dump(mode='json', exclude={'require_transition'} if not req.require_transition else set())
+            identifier, request_hash = 'as_' + uuid4().hex, digest(canonical(request_data))
             inserted = self.execute(con, '''INSERT INTO assurance_sessions
                 (tenant_id,id,idempotency_hash,request_hash,task,preparation_state,created_at,updated_at,preparation_deadline)
                 VALUES(?,?,?,?,?,'PREPARING',?,?,?) ON CONFLICT(tenant_id,idempotency_hash) DO NOTHING''',
@@ -67,6 +68,11 @@ class AssuranceService(RecoveryStore):
                         if not self.registry.accepts(result.contract):
                             raise ValueError('Provider declaration mismatch')
                         contract = result.contract.model_copy(deep=True)
+                        if req.require_transition:
+                            for condition in contract.postconditions:
+                                if not self.registry.require(condition.provider).manifest.transition_support:
+                                    raise ValueError('Provider cannot prove transitions')
+                                condition.require_change = True
                         contract.id = 'cc_' + uuid4().hex[:16]
                         contract.task_started_at = contract.created_at = datetime.now(timezone.utc)
                         baselines = await self.app.state.engine.snapshot(contract, tenant)
@@ -148,6 +154,7 @@ class AssuranceService(RecoveryStore):
         elif session.receipt:
             session.state = session.receipt.verdict.value
         if session.receipt:
+            session.assurance = assurance_summary(session.receipt)
             session.signed_payload_b64 = base64.b64encode(ReceiptSigner._payload(session.receipt)).decode()
             session.verdict = session.receipt.verdict
             session.remediation = session.receipt.remediation

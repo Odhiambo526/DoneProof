@@ -5,7 +5,14 @@ import re
 from fastapi import Depends, Header, HTTPException, Request
 
 from .assurance import AssuranceService
-from .assurance_models import AssuranceSession, PrepareSession, ReverifySession, VerifySession
+from .assurance_models import (
+    AssuranceSession,
+    AssuranceSummary,
+    PrepareSession,
+    ReverifySession,
+    VerifySession,
+    assurance_summary,
+)
 from .contract_analysis import sensitive
 from .domain import VerificationReceipt
 from .job_api import contains_credentials
@@ -22,6 +29,13 @@ def session_key(key):
 
 def register_assurance_routes(app):
     service = app.state.assurance = AssuranceService(app)
+
+    @app.get('/console/sessions.js', include_in_schema=False)
+    def session_script():
+        from fastapi.responses import Response
+
+        from .session_web import SESSION_JS
+        return Response(SESSION_JS, media_type='text/javascript', headers={'Cache-Control': 'no-store'})
 
     @app.exception_handler(IdempotencyConflict)
     async def conflict(request, exc):
@@ -78,3 +92,10 @@ def register_assurance_routes(app):
         if current.state in {'VERIFYING', 'REVERIFYING'} or not current.receipt:
             raise HTTPException(409, 'No completed receipt for the current attempt')
         return current.receipt
+
+    @app.get('/v1/receipts/{receipt_id}/assurance', response_model=AssuranceSummary, tags=['Receipts'])
+    async def receipt_assurance(receipt_id: str, ctx: TenantContext = Depends(require_tenant)):
+        receipt = await asyncio.to_thread(app.state.store.get_receipt, ctx.tenant_id, receipt_id)
+        if receipt is None:
+            raise HTTPException(404, 'Receipt not found')
+        return assurance_summary(receipt)

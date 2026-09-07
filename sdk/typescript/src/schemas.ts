@@ -2,6 +2,49 @@
 export const schemas = {
   "AssuranceSession": {
     "$defs": {
+      "AssuranceSummary": {
+        "properties": {
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "submitted",
+              "registered",
+              "transition_assured"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "lower_assurance_browser": {
+            "title": "Lower Assurance Browser",
+            "type": "boolean"
+          },
+          "required_conditions": {
+            "title": "Required Conditions",
+            "type": "integer"
+          },
+          "transition_required": {
+            "title": "Transition Required",
+            "type": "integer"
+          },
+          "transitions_proven": {
+            "title": "Transitions Proven",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "level",
+          "required_conditions",
+          "transition_required",
+          "transitions_proven",
+          "lower_assurance_browser",
+          "explanation"
+        ],
+        "title": "AssuranceSummary",
+        "type": "object"
+      },
       "BrowserProvenance": {
         "additionalProperties": false,
         "properties": {
@@ -1302,6 +1345,17 @@ export const schemas = {
       }
     },
     "properties": {
+      "assurance": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AssuranceSummary"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
       "baselines": {
         "items": {
           "$ref": "#/$defs/ConditionResult"
@@ -2518,6 +2572,11 @@ export const schemas = {
         },
         "title": "Context",
         "type": "object"
+      },
+      "require_transition": {
+        "default": false,
+        "title": "Require Transition",
+        "type": "boolean"
       },
       "task": {
         "maxLength": 4000,

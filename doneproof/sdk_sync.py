@@ -84,8 +84,8 @@ class DoneProof:
 
 class Assurance(_Resource):
 
-    def prepare(self, *, task: str, idempotency_key: str, context: dict[str, JsonValue] | None=None, timeout: float=150, cancellation: Cancellation | None=None) -> AssuranceSession:
-        return self._invoke(self._async.prepare, task=task, idempotency_key=idempotency_key, context=context, timeout=timeout, cancellation=cancellation)
+    def prepare(self, *, task: str, idempotency_key: str, context: dict[str, JsonValue] | None=None, require_transition: bool=False, timeout: float=150, cancellation: Cancellation | None=None) -> AssuranceSession:
+        return self._invoke(self._async.prepare, task=task, idempotency_key=idempotency_key, context=context, require_transition=require_transition, timeout=timeout, cancellation=cancellation)
 
     def get(self, session_id: str) -> AssuranceSession:
         return self._invoke(self._async.get, session_id)

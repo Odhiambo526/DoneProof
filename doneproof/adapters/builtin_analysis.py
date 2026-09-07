@@ -97,6 +97,8 @@ def analyze_condition(pc, task, context):
             if s.get(key) and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", str(s[key])):
                 add("impossible_selector")
     p = pc.predicate
+    if pc.provider == 'gmail' and s.get('message_id') and pc.require_change and p.path == 'location' and p.expected == 'sent':
+        add('gmail_draft_identity_changes', 'missing_identifier', ('subject', 'to'))
     values = p.expected if isinstance(p.expected, list) else [p.expected]
     aliases = {"assignees": "assignee", "labels": "label", "attachment_names": "attachment_name"}
     for value in values:

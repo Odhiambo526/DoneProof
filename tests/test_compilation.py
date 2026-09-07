@@ -81,7 +81,7 @@ def test_candidate_schema_is_strict_and_valid():
     "Verify PR #7 in acme/api is merged", 'Create issue in acme/api titled "Release; follow up"',
     'Create pull request in acme/api titled "Ship release" from "release" to "main"',
     'Send email to ana@example.com with subject "Q3 report" with attachment "report.pdf"',
-    "Send Gmail draft msg17", "Check Gmail message msg5 is draft",
+    "Check Gmail message msg5 is draft",
     'Verify Gmail message msg8 has attachment "invoice.pdf"',
     'Wait for webhook "refund.completed" from "erp" for object "order-9" with payload.status = "refunded"',
     "Close issue #12 in acme/api; Merge PR #7 in acme/api",
