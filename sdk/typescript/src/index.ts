@@ -52,6 +52,20 @@ export function parseModel<K extends keyof ModelMap>(name: K, value: unknown): M
         || session.compiler.status === 'valid_contract')) throw new CompatibilityError('invalid_clarification');
     if (session.verdict && session.verdict !== session.receipt?.verdict) throw new CompatibilityError('unbound_verdict');
     if (session.receipt) validateReceipt(session.receipt);
+    if (session.assurance) {
+      if (!session.receipt) throw new CompatibilityError('unbound_assurance');
+      const receipt = session.receipt, summary = session.assurance;
+      const required = receipt.results.filter(r => r.required);
+      const transitions = required.filter(r => r.transition_required);
+      const proven = transitions.filter(r => r.status === 'PASS' && r.baseline_status === 'FAIL').length;
+      const registered = receipt.assurance_level === 'registered';
+      const level = registered && receipt.verdict === 'VERIFIED' && transitions.length > 0 && proven === transitions.length
+        ? 'transition_assured' : receipt.assurance_level;
+      if (summary.level !== level || summary.required_conditions !== required.length
+          || summary.transition_required !== transitions.length || summary.transitions_proven !== (registered ? proven : 0)
+          || summary.lower_assurance_browser !== required.some(r => Boolean(r.evidence.provenance)))
+        throw new CompatibilityError('assurance_summary_mismatch');
+    }
     for (const evidence of session.evidence ?? []) {
       if ((evidence.provider === 'browser' || evidence.provenance) && (evidence.evidence_class !== 'browser_ui'
           || evidence.assurance_level !== 'lower_than_authoritative_api' || !evidence.provenance))

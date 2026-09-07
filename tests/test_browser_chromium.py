@@ -122,3 +122,53 @@ def test_chromium_cancellation_discards_the_context():
             finally:
                 await browser.close()
     asyncio.run(cancel())
+
+
+def test_connection_session_console_uses_safe_text_and_pinned_receipt():
+    import json
+    from pathlib import Path
+
+    from doneproof.assurance_models import assurance_summary
+    from doneproof.domain import VerificationReceipt
+    from doneproof.session_web import SESSION_JS, SESSION_PANEL
+    fixtures = json.loads((Path(__file__).parents[1] / 'sdk/typescript/test/fixtures.json').read_text())
+    item = fixtures['receipts'][2]
+    receipt = VerificationReceipt.model_validate(item['receipt'])
+    session = {**fixtures['ready_session'], 'state': receipt.verdict.value, 'receipt': item['receipt'],
+               'assurance': assurance_summary(receipt).model_dump(), 'signed_payload_b64': item['signed_payload_b64']}
+    session['baselines'] = [{'id': 'p1', 'status': 'FAIL', 'reason': '<img src=x onerror=alert(1)>'}]
+    async def run():
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, chromium_sandbox=True)
+            try:
+                page = await browser.new_page()
+                errors = []
+                page.on('pageerror', lambda error: errors.append(type(error).__name__))
+                async def route(request):
+                    url = request.request.url
+                    if url.endswith('/console'):
+                        await request.fulfill(content_type='text/html', body='<input id="key" type="password">' + SESSION_PANEL + '<script src="/session.js"></script>')
+                    elif url.endswith('/session.js'):
+                        await request.fulfill(content_type='text/javascript', body=SESSION_JS)
+                    elif url.endswith('/v1/assurance/sessions/' + session['id']):
+                        await request.fulfill(content_type='application/json', body=json.dumps(session))
+                    else:
+                        await request.abort()
+                await page.route('**/*', route)
+                await page.goto('https://doneproof.test/console')
+                await page.fill('#session-id', session['id'])
+                await page.click('#session-load')
+                await page.wait_for_function("document.querySelector('#session-details').textContent.includes('Baseline p1')")
+                assert await page.locator('#session-details img').count() == 0
+                assert 'lower assurance' in await page.locator('#session-details').inner_text()
+                await page.fill('#session-pin', item['pinned_public_key'])
+                await page.click('#session-trust')
+                await page.wait_for_function("document.querySelector('#session-signature').textContent.startsWith('Signature verified')")
+                await page.fill('#session-pin', 'untrusted')
+                await page.click('#session-trust')
+                await page.wait_for_function("document.querySelector('#session-signature').textContent.startsWith('Pinned signature verification failed')")
+                assert not errors
+            finally:
+                await browser.close()
+    asyncio.run(run())

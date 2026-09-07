@@ -107,7 +107,7 @@ def test_migration_is_additive_idempotent_and_preserves_signed_data(connection_s
     original.audit("tenant-a", "legacy.audit", "contract", contract.id, {"safe": True})
     with (original._pg_connect() if original.backend == "postgresql" else original._connect()) as con:
         if original.backend == "postgresql":
-            con.execute("DELETE FROM schema_migrations WHERE version=2")
+            con.execute("DELETE FROM schema_migrations WHERE version>=2")
         # Exact bytes intentionally do not need a current model: migration must not rewrite receipts.
         query = """INSERT INTO receipts(receipt_id,contract_id,verdict,body_json,verified_at,receipt_hash,signature,tenant_id)
                    VALUES(?,?,?,?,?,?,?,?)"""

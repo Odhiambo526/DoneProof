@@ -108,3 +108,10 @@ test('Preparation replay resumes the original session with bounded polling', asy
   assert.equal(session.id, ready.id); assert.equal(session.state, 'READY_FOR_EXECUTION');
   assert.deepEqual(seen, ['POST', 'GET']);
 });
+
+test('Derived assurance cannot upgrade or hide signed evidence semantics', () => {
+  const receipt = fixtures.receipts[2].receipt;
+  assert.throws(() => parseModel('AssuranceSession', { ...ready, receipt, verdict: receipt.verdict,
+    assurance: { level: 'transition_assured', required_conditions: receipt.results.length,
+      transition_required: 1, transitions_proven: 1, lower_assurance_browser: false, explanation: 'Forged' } }), CompatibilityError);
+});
