@@ -115,3 +115,14 @@ test('Derived assurance cannot upgrade or hide signed evidence semantics', () =>
     assurance: { level: 'transition_assured', required_conditions: receipt.results.length,
       transition_required: 1, transitions_proven: 1, lower_assurance_browser: false, explanation: 'Forged' } }), CompatibilityError);
 });
+
+test('Default preparation does not send new fields to strict older servers', async () => {
+  const seen = [];
+  const dp = new DoneProof({ apiKey: 'fixture-key', fetch: async (url, options) => {
+    seen.push(JSON.parse(options.body)); return response(ready);
+  } });
+  await dp.assurance.prepare({ task: ready.task, idempotencyKey: 'old-server' });
+  await dp.assurance.prepare({ task: ready.task, idempotencyKey: 'new-server', requireTransition: true });
+  assert.equal(Object.hasOwn(seen[0], 'require_transition'), false);
+  assert.equal(seen[1].require_transition, true);
+});

@@ -291,3 +291,17 @@ def test_sdk_resumes_preparing_session_without_second_mutation(assurance):  # no
         result = dp.assurance.prepare(task=ready['task'], idempotency_key='stable')
     assert result.id == ready['id'] and result.state == 'READY_FOR_EXECUTION'
     assert seen == ['POST', 'GET'] and provider.calls == 1
+
+
+@pytest.mark.parametrize('transition', [False, True])
+def test_sdk_default_policy_remains_compatible_with_strict_older_server(assurance, transition):  # noqa: F811
+    _, client, _, _ = assurance
+    ready = client.post('/v1/assurance/sessions', headers=A,
+                        json={'task': 'Close issue #12 in acme/api'}).json()
+    def respond(request):
+        body = json.loads(request.content)
+        assert ('require_transition' in body) is transition
+        return httpx.Response(200, json=ready)
+    from doneproof import DoneProof
+    with DoneProof(api_key='key-a', base_url='https://testserver', transport=httpx.MockTransport(respond)) as dp:
+        assert dp.assurance.prepare(task=ready['task'], idempotency_key='stable', require_transition=transition).id == ready['id']

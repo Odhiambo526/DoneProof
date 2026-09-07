@@ -239,7 +239,8 @@ export class DoneProof {
 export class Assurance {
   constructor(private readonly client: DoneProof) {}
   async prepare(options: PrepareOptions): Promise<AssuranceSession> {
-    const body = { task: options.task, context: options.context ?? {}, require_transition: options.requireTransition ?? false }; parseModel('PrepareSession', body);
+    const body = { task: options.task, context: options.context ?? {},
+      ...(options.requireTransition !== undefined && options.requireTransition !== false ? { require_transition: options.requireTransition } : {}) }; parseModel('PrepareSession', body);
     const end = deadline(options.timeout ?? 150);
     let result = await this.client.request('POST', '/v1/assurance/sessions', 'AssuranceSession', { body, key: mutationKey(options.idempotencyKey),
       end, signal: options.signal });

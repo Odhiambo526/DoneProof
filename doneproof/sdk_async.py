@@ -15,7 +15,7 @@ from . import __version__
 from .assurance_models import AssuranceSession, DurableJob, PrepareSession, ReverifySession, VerifySession
 from .compilation_models import CompilationResult
 from .connection_api import ConnectionList, ConnectionView, DisconnectRequest
-from .domain import CapabilityResponse, VerificationReceipt
+from .domain import CapabilityResponse, CompileRequest, VerificationReceipt
 from .job_models import TERMINAL
 from .retries import retry_after_seconds
 from .sdk_common import (
@@ -211,8 +211,11 @@ class Assurance:
     async def prepare(self, *, task: str, idempotency_key: str, context: dict[str, JsonValue] | None = None,
                       require_transition: bool = False, timeout: float = 150, cancellation: Cancellation | None = None) -> AssuranceSession:
         until = time.monotonic() + duration(timeout)
+        body = payload(PrepareSession, task=task, context=context or {}, require_transition=require_transition)
+        if not require_transition:
+            body.pop('require_transition')
         result = await self._client._request('POST', '/v1/assurance/sessions', AssuranceSession,
-            body=payload(PrepareSession, task=task, context=context or {}, require_transition=require_transition), key=mutation_key(idempotency_key),
+            body=body, key=mutation_key(idempotency_key),
             until=until, cancellation=cancellation)
         delay = 0.25
         while result.state == 'PREPARING':
@@ -278,4 +281,4 @@ class Providers:
     async def for_task(self, *, task: str, context: dict[str, JsonValue] | None = None) -> CompilationResult:
         # Planning is authoritative on the server; no local provider heuristics.
         return await self._client._request('POST', '/v2/contracts/compile', CompilationResult,
-            body=payload(PrepareSession, task=task, context=context or {}))
+            body={k: v for k, v in payload(CompileRequest, task=task, context=context or {}).items() if k != 'task_started_at'})
